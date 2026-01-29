@@ -1,0 +1,9 @@
+afx F's Tools
+"toJpegWP" "C:\Bin\cmds\wp.exe" "$P"
+"hren" "C:\Bin\cmds\rh.exe" "$P"
+"fs" "C:\Bin\cmds\fs.exe" "$P"
+"fs -r" "C:\Bin\cmds\fs.exe" -r "$P"
+"Dir To Zip2" "C:\bin\cmds\d2z.exe" $MF
+"Arc To Dir2" "C:\bin\cmds\a2d.exe" $MF
+"Rar To Zip" "C:\bin\cmds\r2z.exe" $MF
+"BinaryEdit" "C:\Bin\stir131\Stirling.exe" "$P\$F"

@@ -1,0 +1,14 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="a2d/a2d.vcxproj" Id="a6bd383b-fe35-48ed-8cb8-d1ac4cfe5846" />
+  <Project Path="d2z/d2z.vcxproj" Id="6a41f044-6749-4fc4-bc2a-1c0aced3ff2e" />
+  <Project Path="fs/fs.vcxproj" Id="84332de0-bcab-4db5-a48e-05482c96cb0e" />
+  <Project Path="r2z/r2z.vcxproj" Id="f8a60f9b-e313-4a21-b910-7428d4973ef4" />
+  <Project Path="RenSeq/RenSeq.vcxproj" Id="9f4de2e7-26a1-4136-b082-f6fbb084f546" />
+  <Project Path="rh/rh.vcxproj" Id="43d90afa-756a-46ea-8c23-725e7efb530f" />
+  <Project Path="wp/wp.vcxproj" Id="1ebee2c9-af2d-49a7-b495-47e8ae7cfdfa" />
+</Solution>
