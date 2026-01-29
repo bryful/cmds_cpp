@@ -224,11 +224,11 @@ int main(int argc, char* argv[])
     {
         std::cout << "RenSeq - ファイル名の数字以外をリネーム\n";
         std::cout << "使い方:\n";
-        std::cout << "  単一ファイル: RenSeq <ファイルパス> <新しいプレフィックス>\n";
-        std::cout << "  ディレクトリ: RenSeq -d <ディレクトリパス> <拡張子> <新しいプレフィックス>\n";
+        std::cout << "  単一ファイル: renSeq <ファイルパス> <新しいプレフィックス>\n";
+        std::cout << "  ディレクトリ: renSeq -d <ディレクトリパス> <拡張子> <新しいプレフィックス>\n";
         std::cout << "\n例:\n";
-        std::cout << "  RenSeq AAA_0001.tga BBB_\n";
-        std::cout << "  RenSeq -d C:\\temp .tga NewName_\n";
+        std::cout << "  renSeq AAA_0001.tga BBB_\n";
+        std::cout << "  renSeq -d C:\\temp .tga NewName_\n";
         return 1;
     }
 

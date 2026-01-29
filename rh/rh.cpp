@@ -15,32 +15,7 @@
 
 namespace fs = std::filesystem;
 
-// Unicode正規化関数（wpと同じ）
-std::wstring NormalizePathUnicode(const std::wstring& path) {
-    int len = NormalizeString(NormalizationC, path.c_str(), -1, NULL, 0);
-    if (len <= 0) return path;
-    std::wstring normalized(len, 0);
-    NormalizeString(NormalizationC, path.c_str(), -1, &normalized[0], len);
-    // 末尾のnull文字を削除
-    if (!normalized.empty() && normalized.back() == L'\0') {
-        normalized.pop_back();
-    }
-    return normalized;
-}
 
-std::string toLowwer(std::string s)
-{
-    std::transform(s.begin(), s.end(), s.begin(),
-        [](unsigned char c) { return std::tolower(c); });
-    return s;
-}
-
-std::wstring toLowwer(std::wstring s)
-{
-    std::transform(s.begin(), s.end(), s.begin(),
-        [](wchar_t c) { return std::towlower(c); });
-    return s;
-}
 
 // wstring → UTF-8 string 変換関数（Windows専用）
 std::string WStringToUtf8(const std::wstring& wstr) {
