@@ -8,6 +8,7 @@
   <Project Path="d2z/d2z.vcxproj" Id="6a41f044-6749-4fc4-bc2a-1c0aced3ff2e" />
   <Project Path="fs/fs.vcxproj" Id="84332de0-bcab-4db5-a48e-05482c96cb0e" />
   <Project Path="r2z/r2z.vcxproj" Id="f8a60f9b-e313-4a21-b910-7428d4973ef4" />
+  <Project Path="renNFD/renNFD.vcxproj" Id="6d83357c-1fa4-479c-827e-a119dce1a10b" />
   <Project Path="RenSeq/RenSeq.vcxproj" Id="9f4de2e7-26a1-4136-b082-f6fbb084f546" />
   <Project Path="rh/rh.vcxproj" Id="43d90afa-756a-46ea-8c23-725e7efb530f" />
   <Project Path="wp/wp.vcxproj" Id="1ebee2c9-af2d-49a7-b495-47e8ae7cfdfa" />
