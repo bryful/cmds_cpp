@@ -5,9 +5,12 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="a2d/a2d.vcxproj" Id="a6bd383b-fe35-48ed-8cb8-d1ac4cfe5846" />
+  <Project Path="a2dir/a2dir.vcxproj" Id="e42c9028-9dd4-427b-8615-91e0000487d8" />
   <Project Path="d2z/d2z.vcxproj" Id="6a41f044-6749-4fc4-bc2a-1c0aced3ff2e" />
+  <Project Path="Dir2z/Dir2z.vcxproj" Id="89079973-5db3-4823-8887-388a6b2d6409" />
   <Project Path="fs/fs.vcxproj" Id="84332de0-bcab-4db5-a48e-05482c96cb0e" />
   <Project Path="r2z/r2z.vcxproj" Id="f8a60f9b-e313-4a21-b910-7428d4973ef4" />
+  <Project Path="r2zip/r2zip.vcxproj" Id="0c8f08d6-2e2b-4c0f-8f87-71c6317e8381" />
   <Project Path="renNFD/renNFD.vcxproj" Id="6d83357c-1fa4-479c-827e-a119dce1a10b" />
   <Project Path="RenSeq/RenSeq.vcxproj" Id="9f4de2e7-26a1-4136-b082-f6fbb084f546" />
   <Project Path="rh/rh.vcxproj" Id="43d90afa-756a-46ea-8c23-725e7efb530f" />

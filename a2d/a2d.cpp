@@ -233,21 +233,20 @@ bool ArcToDir(const std::wstring& filePath, const std::wstring& sevenZipPath)
 
         if (((rc == 1) && (fc == 0)) || ((rc == 0) && (fc > 0)))
         {
-            // ルートディレクトリが1つだけ、またはルートディレクトリが0の場合
-            // 親ディレクトリに直接展開
-            tmpDir = tmpDir.parent_path();
+            tmpDir = archiveFile.parent_path();
         }
 
         std::wstring tmpDirStr = tmpDir.wstring();
-        std::wstring arguments = L"\"" + sevenZipPath + L"\" x \"" + filePath + L"\" -o\"" + tmpDirStr + L"\" -y";
+        // 引数を一気に組み立てる（スペースの入れ忘れを防止）
+        std::wstringstream ss;
+        ss << L"\"" << sevenZipPath << L"\"";
+        ss << L" x";                               // 展開コマンド
+        ss << L" \"-x!***.scr\"";                   // 除外設定（先に持ってくるか、クォーテーションで囲む）
+        ss << L" \"" << filePath << L"\"";         // アーカイブファイルパス
+        ss << L" -o\"" << tmpDirStr << L"\"";      // 展開先
+        ss << L" -y";                              // 全て「はい」
 
-        // アーカイブ内に.scrファイルがある場合、除外オプションを追加
-        bool hasScrFile = HasScrFileInArchive(list);
-        if (hasScrFile)
-        {
-            arguments += L" -x!*.scr";
-            std::wcout << L"Warning: *.scr files will be excluded from extraction" << std::endl;
-        }
+        std::wstring arguments = ss.str();
 
         STARTUPINFOW si = { sizeof(si) };
         PROCESS_INFORMATION pi = {};

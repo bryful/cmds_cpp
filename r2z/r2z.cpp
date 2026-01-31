@@ -225,7 +225,7 @@ bool RarToZip(const std::wstring& filePath, const std::wstring& sevenZipPath)
         // scrファイルがある場合は除外
         if (hasScrFile)
         {
-            arguments += L" -x!*.scr";
+            arguments += L" -x!***.scr";
             std::wcout << L"Warning: *.scr files will be excluded" << std::endl;
         }
 
