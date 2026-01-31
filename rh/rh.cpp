@@ -71,22 +71,22 @@ int wmain(int argc, wchar_t* argv[])
     std::vector<std::filesystem::path> files;
     
     for (const auto& entry : std::filesystem::directory_iterator(target)) {
-        if (!entry.is_regular_file()) continue;
-        
-        // ★パスを正規化
-        std::wstring normalized = NormalizePathUnicode(entry.path().wstring());
-        fs::path normalizedPath(normalized);
-        
-        // ★拡張子を取得してnull文字を削除
-        std::wstring ex = normalizedPath.extension().wstring();
-        ex.erase(std::remove(ex.begin(), ex.end(), L'\0'), ex.end());
-        ex = toLowwer(ex);
-        
-        if (ex == L".zip" || ex == L".rar") {
-            files.push_back(normalizedPath);
+        // ★ここでは正規化（NormalizePathUnicode）を行わない！
+        // entry.path() は OS が見つけた「生」の状態を維持している
+
+        if (entry.is_regular_file()) {
+            std::wstring ex = toLowwer(entry.path().extension().wstring());
+            // null除去
+            ex.erase(std::remove(ex.begin(), ex.end(), L'\0'), ex.end());
+
+            if (ex == L".zip" || ex == L".rar") {
+                files.push_back(entry.path()); // 生のパスを保存
+            }
+        }
+        else if (entry.is_directory()) {
+            files.push_back(entry.path()); // 生のパスを保存
         }
     }
-    
     if (files.empty()) {
         std::wcout << L"No files found." << std::endl;
         return 0;

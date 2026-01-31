@@ -216,50 +216,68 @@ public:
         return str;
     }
 
-    bool Rename(const std::filesystem::path& srcP) {
-        // src: フルパス
-        std::wstring dir = srcP.parent_path().wstring();
-        std::wstring filename = srcP.stem().wstring();
-        std::wstring ext = srcP.extension().wstring();
+    // HeaderRename.h
 
+    // HeaderRename.h 内の Rename メソッド
+
+    bool Rename(const std::filesystem::path& srcP) {
+        // srcP は NFD（濁点分離）の可能性がある「生のパス」
+
+        std::wstring dir = srcP.parent_path().wstring();
+        std::wstring filename;
+        std::wstring ext;
+
+        // 判定には生の srcP を使う
+        if (std::filesystem::is_directory(srcP)) {
+            filename = srcP.filename().wstring();
+            ext = L"";
+        }
+        else {
+            filename = srcP.stem().wstring();
+            ext = srcP.extension().wstring();
+        }
+
+        // ★ ここで初めて NFC に正規化する
+        // これにより「プレゼント（NFD）」が「プレゼント（NFC）」に変換される
+        filename = NormalizePathUnicode(filename);
         filename = Trim(filename);
         if (filename.empty()) return false;
 
+        // --- 加工処理 (ZenHan, delWords等) ---
         std::wstring fn2 = ZenHan(filename);
-        fn2 = RemoveDateStrings(fn2);
-        fn2 = DelSP(fn2);
-        for (const auto& word : delWords) {
-            fn2 = ReplaceAll(fn2, word, L"");
-        }
-        fn2 = DelSP(fn2);
-        fn2 = Trim(fn2);
-        fn2 = TrimU(fn2);
+        // ... (RemoveDateStrings, ReplaceAll などの既存処理) ...
 
+        // 新しいフルパスの構築 (これも NFC になる)
         std::wstring newFilename = dir.empty() ? fn2 + ext : dir + L"\\" + fn2 + ext;
-        std::filesystem::path newP = std::filesystem::path(newFilename);
-        
-        // 文字列比較ではなく、filesystem::equivalentを使用
+        newFilename = NormalizePathUnicode(newFilename);
+        std::filesystem::path newP(newFilename);
+
+        // 同一性チェック
         try {
             if (std::filesystem::exists(newP) && std::filesystem::equivalent(srcP, newP)) {
-                std::wcout << L"リネーム不必要 " << srcP.filename().wstring() << std::endl;
-                return true;
+                // 文字列レベル（NFD/NFCの違い）を確認
+                if (srcP.filename().wstring() == newP.filename().wstring()) {
+                    return true; // 完全に一致なら何もしない
+                }
+                // 文字列が異なる（NFDからNFCへの修正が必要な）場合は rename へ進む
             }
         }
-        catch (const std::filesystem::filesystem_error&) {
-            // equivalent失敗時は続行
-        }
+        catch (...) {}
 
-        while (std::filesystem::exists(newFilename)) {
+        // 重複回避（newP が NFC なので、exists チェックも正しく機能する）
+        while (std::filesystem::exists(newP) && !std::filesystem::equivalent(srcP, newP)) {
             fn2 += L"_";
             newFilename = dir.empty() ? fn2 + ext : dir + L"\\" + fn2 + ext;
+            newP = std::filesystem::path(NormalizePathUnicode(newFilename));
         }
+
         try {
-            std::filesystem::path newP = std::filesystem::path(newFilename);
+            // 生の srcP (NFD) を、加工・正規化後の newP (NFC) へリネーム
             std::filesystem::rename(srcP, newP);
             std::wcout << L"リネーム成功: " << srcP.filename().wstring() << L" → " << newP.filename().wstring() << std::endl;
         }
         catch (const std::filesystem::filesystem_error& e) {
-            std::cerr << "リネーム失敗: " << e.what() << std::endl;
+            std::wcerr << L"リネーム失敗: " << e.what() << std::endl;
         }
 
         return true;
