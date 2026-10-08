@@ -1,205 +1,183 @@
-﻿#include <iostream>
-#include <filesystem>
-#include <regex>
-#include <string>
-#include <vector>
-#include <cstdio>
-#include <algorithm>
-#include <cctype>
+﻿#include <Windows.h>
 #include <webp/decode.h>
+#include <turbojpeg.h>
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-#include <Windows.h>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <memory>
+#include <string>
+#include <stdexcept>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-std::wstring NormalizePathUnicode(const std::wstring& path) {
-    int len = NormalizeString(NormalizationC, path.c_str(), -1, NULL, 0);
-    if (len <= 0) return path;
-    std::wstring normalized(len, 0);
-    NormalizeString(NormalizationC, path.c_str(), -1, &normalized[0], len);
-    // 末尾のnull文字を削除
-    if (!normalized.empty() && normalized.back() == L'\0') {
-        normalized.pop_back();
-    }
-    return normalized;
+std::string PathText(const fs::path& path) {
+    const auto value = path.u8string();
+    return std::string(value.begin(), value.end());
 }
 
-bool ConvertWebpToJpeg_Stb(const fs::path & webpPath, const fs::path& jpegPath, int quality = 75) {
-    // WebPファイルをバイナリで読み込む
-    std::ifstream file(webpPath, std::ios::binary | std::ios::ate);
-    if (!file) {
-        std::cerr << "WebPファイルが開けません: " << webpPath.filename().string() << std::endl;
-        return false;
+bool IsWebp(const fs::path& path) {
+    const auto ext = path.extension().wstring();
+    return CompareStringOrdinal(ext.c_str(), -1, L".webp", -1, TRUE) == CSTR_EQUAL;
+}
+
+std::wstring Digits(std::wstring value) {
+    const auto first = value.find_first_not_of(L'0');
+    return first == std::wstring::npos ? L"0" : value.substr(first);
+}
+
+fs::path JpegPath(const fs::path& input) {
+    const auto stem = input.stem().wstring();
+    const auto separator = stem.find(L'_', 5);
+    if (stem.size() > 5 &&
+        CompareStringOrdinal(stem.c_str(), 5, L"imgi_", 5, TRUE) == CSTR_EQUAL &&
+        separator != std::wstring::npos) {
+        const auto a = stem.substr(5, separator - 5);
+        const auto b = stem.substr(separator + 1);
+        if (!a.empty() && a == b && a.find_first_not_of(L"0123456789") == std::wstring::npos) {
+            auto number = Digits(a);
+            if (number.size() < 3) number.insert(0, 3 - number.size(), L'0');
+            return input.parent_path() / (L"img" + number + L".jpeg");
+        }
     }
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    std::vector<uint8_t> buffer(size);
-    if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        std::cerr << "WebPファイルの読み込み失敗: " << webpPath.filename().string() << std::endl;
-        return false;
+    auto result = input;
+    return result.replace_extension(L".jpeg");
+}
+
+struct Job {
+    fs::path input, output;
+    std::wstring number;
+};
+
+struct CaseInsensitiveLess {
+    bool operator()(const std::wstring& a, const std::wstring& b) const {
+        return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
     }
+};
+
+// Own the temporary file until it has been published successfully.
+struct TemporaryFile {
+    fs::path path;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    ~TemporaryFile() {
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        if (!path.empty()) DeleteFileW(path.c_str());
+    }
+};
+
+bool Convert(const Job& job, tjhandle encoder) {
+    if (fs::exists(job.output)) throw std::runtime_error("Output already exists");
+    std::ifstream file(job.input, std::ios::binary | std::ios::ate);
+    if (!file) throw std::runtime_error("Cannot open WebP");
+    const auto size = file.tellg();
+    if (size <= 0 || static_cast<unsigned long long>(size) >
+        (std::numeric_limits<size_t>::max)()) throw std::runtime_error("Invalid input size");
+    std::vector<unsigned char> buffer(static_cast<size_t>(size));
+    file.seekg(0);
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(size)))
+        throw std::runtime_error("Cannot read WebP");
     file.close();
-
-    // WebPデコード（RGBで取得）
     int width = 0, height = 0;
-    uint8_t* rgb = WebPDecodeRGB(buffer.data(), buffer.size(), &width, &height);
-    if (!rgb) {
-        std::cerr << "WebPデコード失敗: " << webpPath.filename().string() << std::endl;
-        return false;
-    }
+    std::unique_ptr<unsigned char, decltype(&WebPFree)> rgb(
+        WebPDecodeRGB(buffer.data(), buffer.size(), &width, &height), WebPFree);
+    if (!rgb) throw std::runtime_error("WebP decoding failed");
+    unsigned char* rawJpeg = nullptr;
+    unsigned long jpegSize = 0;
+    const int status = tjCompress2(encoder, rgb.get(), width, 0, height, TJPF_RGB,
+        &rawJpeg, &jpegSize, TJSAMP_420, 75, 0);
+    std::unique_ptr<unsigned char, decltype(&tjFree)> jpeg(rawJpeg, tjFree);
+    if (status != 0) throw std::runtime_error(tjGetErrorStr());
 
-    // std::ofstream を使用して jpegPath に直接書き込む
-    std::ofstream outFile(jpegPath, std::ios::binary);
-    if (!outFile) {
-        std::cerr << "JPEG書き込み失敗: ファイルを開けません" << std::endl;
-        WebPFree(rgb);
-        return false;
+    TemporaryFile temp;
+    for (unsigned int attempt = 0; attempt < 100; ++attempt) {
+        temp.path = job.output;
+        temp.path += L".wp-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+            std::to_wstring(attempt) + L".tmp";
+        temp.handle = CreateFileW(temp.path.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (temp.handle != INVALID_HANDLE_VALUE) break;
+        const auto error = GetLastError();
+        temp.path.clear(); // Never delete a temporary file owned by another process.
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS)
+            throw std::runtime_error("Cannot create temporary JPEG");
     }
-
-    // stbi_write_jpg_to_func を使用してメモリに書き込み、その後ファイルに保存
-    auto write_func = [](void* context, void* data, int size) {
-        std::ofstream* stream = static_cast<std::ofstream*>(context);
-        stream->write(static_cast<const char*>(data), size);
-    };
-
-    int ok = stbi_write_jpg_to_func(write_func, &outFile, width, height, 3, rgb, quality);
-    WebPFree(rgb);
-    outFile.close();
-
-    if (!ok) {
-        std::cerr << "JPEG書き込み失敗" << std::endl;
-        return false;
+    if (temp.handle == INVALID_HANDLE_VALUE) throw std::runtime_error("Temporary name unavailable");
+    size_t offset = 0;
+    while (offset < jpegSize) {
+        const DWORD count = static_cast<DWORD>((std::min)(size_t(jpegSize) - offset, size_t(1 << 20)));
+        DWORD written = 0;
+        if (!WriteFile(temp.handle, jpeg.get() + offset, count, &written, nullptr) || written == 0)
+            throw std::runtime_error("JPEG writing failed");
+        offset += written;
     }
-    else {
-        try {
-            if (std::filesystem::remove(webpPath)) {
-                // 削除成功
-            }
-            else {
-                return false;
-            }
-            std::cout << "変換完了: " << webpPath.filename().string() << " -> " << jpegPath.filename().string() << std::endl;
-        }
-        catch (const std::filesystem::filesystem_error& e) {
-            std::cerr << "削除エラー: " << webpPath.filename().string() <<" - " << e.what() << std::endl;
-            return false;
-        }
-    }
+    if (!FlushFileBuffers(temp.handle)) throw std::runtime_error("JPEG flushing failed");
+    const auto handle = temp.handle;
+    temp.handle = INVALID_HANDLE_VALUE;
+    if (!CloseHandle(handle)) throw std::runtime_error("JPEG closing failed");
+    // Without REPLACE_EXISTING, a destination created after preflight is protected too.
+    if (!MoveFileExW(temp.path.c_str(), job.output.c_str(), MOVEFILE_WRITE_THROUGH))
+        throw std::runtime_error("Cannot publish JPEG; Windows error " + std::to_string(GetLastError()));
+    temp.path.clear();
+    if (!fs::remove(job.input)) throw std::runtime_error("Cannot remove source WebP; JPEG retained");
+    std::cout << PathText(job.input.filename()) << " -> " << PathText(job.output.filename()) << '\n';
     return true;
 }
 
-void Usage() {
-    std::cout << "Usage: wp <input.webp> " << std::endl;
-    std::cout << "Example: wp image.webp" << std::endl;
-}
-
-fs::path ConvertImgiToImgJpeg(const fs::path& webpName) {
-    std::string fn = webpName.filename().string();
-    
-    // null文字を削除
-    fn.erase(std::remove(fn.begin(), fn.end(), '\0'), fn.end());
-    
-    std::regex re(R"(imgi_(\d+)_(\d+)\.webp)", std::regex::icase);
-    std::smatch m;
-    
-    if (std::regex_match(fn, m, re) && m[1] == m[2]) {
-        int n = std::stoi(m[1]);
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "img%03d.jpeg", n);
-        
-        fs::path ret = webpName;
-        return ret.replace_filename(buf);
+int wmain(int argc, wchar_t* argv[]) {
+    SetConsoleOutputCP(CP_UTF8);
+    if (argc != 2) {
+        std::cerr << "Usage: wp <input.webp|directory>\n";
+        return 1;
     }
-    
-    // マッチしない場合は拡張子だけjpegに（コピーを作成）
-    fs::path result = webpName;
-    return result.replace_extension(".jpeg");
-}
+    try {
+        const fs::path input(argv[1]);
+        std::vector<Job> jobs;
+        auto add = [&](const fs::path& path) {
+            const auto stem = path.stem().wstring();
+            const auto end = stem.find_last_not_of(L"0123456789");
+            const auto number = Digits(stem.substr(end == std::wstring::npos ? 0 : end + 1));
+            jobs.push_back({path, JpegPath(path), number});
+        };
+        if (fs::is_directory(input)) {
+            for (const auto& entry : fs::directory_iterator(input))
+                if (entry.is_regular_file() && IsWebp(entry.path())) add(entry.path());
+        } else if (fs::is_regular_file(input) && IsWebp(input)) {
+            add(input);
+        } else throw std::runtime_error("Input must be a WebP file or directory");
 
-bool ConvertWebpToJpeg_Stb(const fs::path& path) {
-    fs::path jpegPath = ConvertImgiToImgJpeg(path);
-    return ConvertWebpToJpeg_Stb(path, jpegPath);
-}
-
-// ファイルパスを末尾の数字でソートする関数
-void SortByTrailingNumber(std::vector<fs::path>& files) {
-    std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
-        std::string sa = a.filename().string();
-        std::string sb = b.filename().string();
-        
-        // ★null文字を削除
-        sa.erase(std::remove(sa.begin(), sa.end(), '\0'), sa.end());
-        sb.erase(std::remove(sb.begin(), sb.end(), '\0'), sb.end());
-        
-        // ファイル名から末尾の数字を抽出（拡張子の前）
-        std::regex re(R"((\d+)(?:\.\w+)?$)");
-        std::smatch ma, mb;
-
-        int na = 0, nb = 0;
-        if (std::regex_search(sa, ma, re)) {
-            na = std::stoi(ma[1]);
-        }
-        if (std::regex_search(sb, mb, re)) {
-            nb = std::stoi(mb[1]);
-        }
-        
-        // デバッグ出力（確認後削除可能）
-        // std::cout << "比較: [" << sa << "] → " << na << " vs [" << sb << "] → " << nb << std::endl;
-        
-        return na < nb; // 昇順
-    });
-}
-
-std::vector<fs::path> GetFilesWithExtensions(const fs::path& dir, const std::vector<std::string>& exts) {
-    std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
-
-        std::wstring normalized = NormalizePathUnicode(entry.path().wstring());
-        fs::path normalizedPath(normalized);
-
-        std::string ext = normalizedPath.extension().string();
-        
-        // ★null文字を全て削除
-        ext.erase(std::remove(ext.begin(), ext.end(), '\0'), ext.end());
-        
-        // 小文字変換
-        for (char& c : ext) {
-            c = (char)::tolower((unsigned char)c);
-        }
-        
-        for (const auto& e : exts) {
-            if (ext == e) {
-                files.push_back(normalizedPath);
-                break;
+        std::map<std::wstring, fs::path, CaseInsensitiveLess> outputs;
+        bool conflict = false;
+        for (const auto& job : jobs) {
+            if (!outputs.emplace(job.output.wstring(), job.input).second || fs::exists(job.output)) {
+                std::cerr << "Output conflict: " << PathText(job.output) << '\n';
+                conflict = true;
             }
         }
-    }
-    SortByTrailingNumber(files);
-    return files;
-}
-
-int wmain(int argc, wchar_t* argv[]) {
-    if (argc < 2) {
-        Usage();
-        return 1;
-    }
-    fs::path webpPath = fs::path(argv[1]);
-    if (fs::is_regular_file(webpPath)) {
-        ConvertWebpToJpeg_Stb(webpPath);
-    }
-    else if (fs::is_directory(webpPath)) {
-        std::vector<std::string> exts = { ".webp"};
-        std::vector<fs::path> lst = GetFilesWithExtensions(webpPath, exts);
-        for (const auto& f : lst) {
-            ConvertWebpToJpeg_Stb(f);
+        if (conflict) return 1;
+        std::sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b) {
+            if (a.number.size() != b.number.size()) return a.number.size() < b.number.size();
+            if (a.number != b.number) return a.number < b.number;
+            return a.input.native() < b.input.native();
+        });
+        struct EncoderDeleter { void operator()(void* p) const { tjDestroy(p); } };
+        std::unique_ptr<void, EncoderDeleter> encoder(tjInitCompress());
+        if (!encoder) throw std::runtime_error("Cannot initialize JPEG encoder");
+        size_t failures = 0;
+        for (const auto& job : jobs) {
+            try { Convert(job, encoder.get()); }
+            catch (const std::exception& e) {
+                std::cerr << PathText(job.input) << ": ";
+                std::cerr << e.what() << '\n';
+                ++failures;
+            }
         }
-    }
-    else {
-        Usage();
+        std::cout << "Processed: " << jobs.size() << ", failed: " << failures << '\n';
+        return failures == 0 ? 0 : 1;
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << '\n';
         return 1;
     }
-    return 0;
 }

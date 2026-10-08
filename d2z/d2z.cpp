@@ -1,182 +1,184 @@
-﻿// d2z.cpp : このファイルには 'main' 関数が含まれています。プログラム実行の開始と終了がそこで行われます。
-//
-
-#include <Windows.h>
+﻿#include <Windows.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <fcntl.h>
-#include <io.h>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
-std::wstring LoadSevenZipPath()
-{
-    std::wstring defaultPath = L"C:\\Program Files\\7-Zip\\7z.exe";
-    
-    // 実行ファイルのフルパスを取得
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    
-    // 拡張子を.prefに変更
-    fs::path prefPath(exePath);
-    prefPath.replace_extension(L".pref");
-    
-    // .prefファイルが存在するかチェック
-    if (!fs::exists(prefPath))
-    {
-        return defaultPath;
-    }
-    
-    // ファイルを読み込む
-    std::wifstream prefFile(prefPath);
-    if (!prefFile.is_open())
-    {
-        return defaultPath;
-    }
-    
-    std::wstring sevenZipPath;
-    std::getline(prefFile, sevenZipPath);
-    prefFile.close();
-    
-    // 読み込んだパスが空でないかチェック
-    if (sevenZipPath.empty())
-    {
-        return defaultPath;
-    }
-    
-    // 前後の空白を削除
-    sevenZipPath.erase(0, sevenZipPath.find_first_not_of(L" \t\r\n"));
-    sevenZipPath.erase(sevenZipPath.find_last_not_of(L" \t\r\n") + 1);
-    
-    // 読み込んだパスが有効な7z.exeのパスかチェック
-    if (fs::exists(sevenZipPath) && fs::is_regular_file(sevenZipPath))
-    {
-        return sevenZipPath;
-    }
-    
-    return defaultPath;
+std::string Text(const fs::path& path) {
+    const auto value = path.u8string();
+    return std::string(value.begin(), value.end());
 }
 
-bool DirToZip(const std::wstring& dirPath, const std::wstring& sevenZipPath)
-{
-    try
-    {
-        fs::path dir(dirPath);
-        
-        // ディレクトリが存在するかチェック
-        if (!fs::exists(dir) || !fs::is_directory(dir))
-        {
-            std::wcerr << L"Directory not found: " << dirPath << std::endl;
-            return false;
-        }
+std::runtime_error WindowsError(const char* operation) {
+    return std::runtime_error(std::string(operation) + "; Windows error " + std::to_string(GetLastError()));
+}
 
-        // サブディレクトリとファイルをカウント
-        int dirCount = 0;
-        int fileCount = 0;
-        fs::path targetFolder = dir;
+// Apply the Windows command-line quoting rules, including trailing backslashes.
+std::wstring Quote(const std::wstring& value) {
+    std::wstring result = L"\"";
+    size_t slashes = 0;
+    for (const auto c : value) {
+        if (c == L'\\') { ++slashes; continue; }
+        result.append(c == L'\"' ? slashes * 2 + 1 : slashes, L'\\');
+        result += c;
+        slashes = 0;
+    }
+    result.append(slashes * 2, L'\\');
+    return result + L'\"';
+}
 
-        for (const auto& entry : fs::directory_iterator(dir))
-        {
-            if (entry.is_directory())
-                dirCount++;
-            else if (entry.is_regular_file())
-                fileCount++;
-        }
-
-        // サブディレクトリが1つだけでファイルが0の場合、そのサブディレクトリをターゲットにする
-        if (dirCount == 1 && fileCount == 0)
-        {
-            for (const auto& entry : fs::directory_iterator(dir))
-            {
-                if (entry.is_directory())
-                {
-                    targetFolder = entry.path();
-                    break;
-                }
+fs::path LoadSevenZipPath() {
+    std::vector<wchar_t> module(512);
+    for (;;) {
+        const auto length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
+        if (!length) throw WindowsError("GetModuleFileName");
+        if (length < module.size()) { module.resize(length); break; }
+        module.resize(module.size() * 2);
+    }
+    fs::path pref(std::wstring(module.begin(), module.end()));
+    pref.replace_extension(L".pref");
+    std::ifstream input(pref, std::ios::binary);
+    if (input) {
+        std::string line;
+        std::getline(input, line);
+        if (line.starts_with("\xef\xbb\xbf")) line.erase(0, 3);
+        if (!line.empty()) {
+            UINT codePage = CP_UTF8;
+            int length = MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, line.data(), static_cast<int>(line.size()), nullptr, 0);
+            if (!length) {
+                codePage = CP_ACP;
+                length = MultiByteToWideChar(codePage, 0, line.data(), static_cast<int>(line.size()), nullptr, 0);
+            }
+            std::wstring path(length, 0);
+            if (length) MultiByteToWideChar(codePage, 0, line.data(), static_cast<int>(line.size()), path.data(), length);
+            const auto first = path.find_first_not_of(L" \t\r\n");
+            if (first != std::wstring::npos) {
+                path = path.substr(first, path.find_last_not_of(L" \t\r\n") - first + 1);
+                if (fs::is_regular_file(path)) return fs::absolute(path);
             }
         }
-
-        // Zipファイル名とターゲットパスを作成
-        std::wstring zipFileName = dir.wstring() + L".zip";
-        std::wstring targetPath = targetFolder.wstring() + L"\\*";
-        
-        // 7z.exeのコマンドライン引数を作成
-        std::wstring arguments = L"\"" + sevenZipPath + L"\" a \"" + zipFileName + L"\" \"" + targetPath + L"\"";
-
-        // プロセスを起動
-        STARTUPINFOW si = { sizeof(si) };
-        PROCESS_INFORMATION pi = {};
-
-        if (!CreateProcessW(
-            nullptr,
-            const_cast<LPWSTR>(arguments.c_str()),
-            nullptr,
-            nullptr,
-            FALSE,
-            0,
-            nullptr,
-            nullptr,
-            &si,
-            &pi))
-        {
-            std::wcerr << L"Failed to start 7z.exe" << std::endl;
-            return false;
-        }
-
-        // プロセスの終了を待つ
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        
-        DWORD exitCode;
-        GetExitCodeProcess(pi.hProcess, &exitCode);
-
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-
-        if (exitCode == 0)
-        {
-            std::wcout << L"Created: " << zipFileName << std::endl;
-            return true;
-        }
-        else
-        {
-            std::wcerr << L"7z.exe failed with exit code: " << exitCode << std::endl;
-            return false;
-        }
     }
-    catch (const std::exception& ex)
-    {
-        std::cerr << "Error: " << ex.what() << std::endl;
-        return false;
-    }
+    return L"C:\\Program Files\\7-Zip\\7z.exe";
 }
 
-int wmain(int argc, wchar_t* argv[])
-{
-    // 7z.exeのパスを読み込む
-    std::wstring sevenZipPath = LoadSevenZipPath();
-    
-    // 7z.exeの存在チェック
-    if (!fs::exists(sevenZipPath))
+struct Handle {
+    HANDLE value;
+    ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+};
+
+struct StagingDirectory {
+    fs::path path;
+    explicit StagingDirectory(const fs::path& parent) {
+        static unsigned long sequence = 0;
+        for (unsigned int attempt = 0; attempt < 128; ++attempt) {
+            const auto candidate = parent / (L".d2z-" + std::to_wstring(GetCurrentProcessId()) +
+                L"-" + std::to_wstring(sequence++) + L".tmp");
+            if (CreateDirectoryW(candidate.c_str(), nullptr)) { path = candidate; return; }
+            if (GetLastError() != ERROR_ALREADY_EXISTS) throw WindowsError("Create staging directory");
+        }
+        throw std::runtime_error("No staging directory name available");
+    }
+    ~StagingDirectory() {
+        if (!path.empty()) {
+            std::error_code error;
+            fs::remove_all(path, error);
+            if (error) std::cerr << "Cannot clean staging directory: " << Text(path) << '\n';
+        }
+    }
+};
+
+void Compress(const fs::path& executable, const fs::path& target, const fs::path& archive, const std::wstring& mode) {
+    std::wstring command = Quote(executable.wstring()) + L" a -tzip -y -sse -bd -bb0 -sccUTF-8 " +
+        mode + L" -- " + Quote(archive.wstring()) + L" \"*\"";
+    STARTUPINFOW startup = {sizeof(startup)};
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0,
+        nullptr, target.c_str(), &startup, &process)) throw WindowsError("Start 7-Zip");
+    Handle thread{process.hThread};
+    Handle child{process.hProcess};
+    if (WaitForSingleObject(child.value, INFINITE) != WAIT_OBJECT_0) throw WindowsError("Wait for 7-Zip");
+    DWORD code = 0;
+    if (!GetExitCodeProcess(child.value, &code)) throw WindowsError("Get 7-Zip exit code");
+    if (code != 0) throw std::runtime_error("7-Zip failed with exit code " + std::to_string(code));
+}
+
+void DirToZip(const fs::path& input, const fs::path& executable, const std::wstring& mode) {
+    auto directory = fs::absolute(input).lexically_normal();
+    while (directory.filename().empty() && directory != directory.root_path()) directory = directory.parent_path();
+    if (directory == directory.root_path()) throw std::runtime_error("A drive root cannot be archived");
+    if (!fs::is_directory(directory)) throw std::runtime_error("Directory not found");
+    auto destination = directory;
+    destination += L".zip";
+    if (fs::exists(fs::symlink_status(destination))) throw std::runtime_error("Output already exists");
+
+    // One pass, at most two entries: unwrap exactly one child directory.
+    auto target = directory;
     {
-        std::wcout << L"7-Zip not found." << std::endl;
+        auto entries = fs::directory_iterator(directory);
+        if (entries != fs::directory_iterator()) {
+            const auto first = entries->path();
+            if (entries->is_directory() && ++entries == fs::directory_iterator()) target = first;
+        }
+    }
+    StagingDirectory staging(directory.parent_path());
+    const auto temporaryZip = staging.path / L"result.zip";
+    Compress(executable, target, temporaryZip, mode);
+    if (!fs::is_regular_file(temporaryZip)) throw std::runtime_error("7-Zip did not create an archive");
+    {
+        Handle file{CreateFileW(temporaryZip.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (file.value == INVALID_HANDLE_VALUE) throw WindowsError("Open completed ZIP");
+        if (!FlushFileBuffers(file.value)) throw WindowsError("Flush completed ZIP");
+        const auto completed = file.value;
+        file.value = INVALID_HANDLE_VALUE;
+        if (!CloseHandle(completed)) throw WindowsError("Close completed ZIP");
+    }
+    // No replacement flag: a destination created while compressing is protected too.
+    if (!MoveFileExW(temporaryZip.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH))
+        throw WindowsError("Publish ZIP (destination may already exist)");
+    std::cout << "Created: " << Text(destination) << '\n';
+}
+
+int wmain(int argc, wchar_t* argv[]) {
+    SetConsoleOutputCP(CP_UTF8);
+    try {
+        std::wstring mode;
+        std::vector<fs::path> inputs;
+        bool options = true;
+        for (int i = 1; i < argc; ++i) {
+            const std::wstring argument(argv[i]);
+            if (options && argument == L"--") { options = false; continue; }
+            if (options && (argument == L"--fast" || argument == L"--store")) {
+                if (!mode.empty()) throw std::runtime_error("Choose only one compression mode");
+                mode = argument == L"--fast" ? L"-mx1" : L"-mx0";
+            } else {
+                if (options && argument.starts_with(L"-")) throw std::runtime_error("Unknown option; use -- before a directory starting with '-'");
+                inputs.emplace_back(argument);
+            }
+        }
+        if (inputs.empty()) {
+            std::cerr << "Usage: d2z [--fast|--store] [--] <directory> [...]\n";
+            return 1;
+        }
+        const auto executable = LoadSevenZipPath();
+        if (!fs::is_regular_file(executable)) throw std::runtime_error("7-Zip not found");
+        size_t failed = 0;
+        for (const auto& input : inputs) {
+            try { DirToZip(input, executable, mode); }
+            catch (const std::exception& error) {
+                std::cerr << Text(input) << ": " << error.what() << '\n';
+                ++failed;
+            }
+        }
+        std::cout << "Processed: " << inputs.size() << ", failed: " << failed << '\n';
+        return failed ? 1 : 0;
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
         return 1;
     }
-
-    // 引数チェック
-    if (argc <= 1)
-    {
-        std::wcout << L"no params" << std::endl;
-        return 1;
-    }
-
-    // 各引数に対してDirToZipを実行
-    for (int i = 1; i < argc; i++)
-    {
-        DirToZip(argv[i], sevenZipPath);
-    }
-
-    return 0;
 }
