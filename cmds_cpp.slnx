@@ -11,5 +11,6 @@
   <Project Path="rb/rb.vcxproj" Id="c82caf75-bd30-4984-8d68-5c872eb0c883" />
   <Project Path="renNFD/renNFD.vcxproj" Id="6d83357c-1fa4-479c-827e-a119dce1a10b" />
   <Project Path="rh/rh.vcxproj" Id="43d90afa-756a-46ea-8c23-725e7efb530f" />
+  <Project Path="ThumFromZip/ThumFromZip.vcxproj" Id="f5fa30a9-39e5-423f-956f-819366a76d0d" />
   <Project Path="wp/wp.vcxproj" Id="1ebee2c9-af2d-49a7-b495-47e8ae7cfdfa" />
 </Solution>

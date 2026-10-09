@@ -89,3 +89,11 @@ DLL版でテキスト4,600,000バイトとシード固定の疑似乱数4MiBを�
 
 - [bit7z](https://github.com/rikyoz/bit7z): MPL-2.0。
 - [7-Zip](https://www.7-zip.org/): DLL・SDKにはそれぞれのライセンスが適用されます。配布時はライセンス条件を確認してください。
+## ソリューション内の配置（2026-10-09）
+
+ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`out/obj/<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
+`build.ps1`を直接実行して`-OutputDirectory`を省略した場合は、プロジェクト内の`out/build/<Platform>/<Configuration>`に実行ファイルができます。Visual Studio経由では同じスクリプトの結果を共通出力先へコピーします。CMakeキャッシュと取得した依存ソースは`out/build/<Platform>`に置きます。`out/`を削除した後の初回ビルドには再びネット接続が必要です。実行時の7z.dllは自動取得・コピーされません。
+
+過去の検証・速度比較は記載した環境での記録です。今回のREADME更新に伴う再計測は行っていません。
+
+[ソリューション全体の説明](../README.md)

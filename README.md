@@ -2,6 +2,8 @@
 
 ファイル整理、リネーム、アーカイブ変換、画像変換のためのC++製コマンドラインツールです。ソリューションは`cmds_cpp.slnx`です。
 
+全9プロジェクトの現行仕様・配置を記載しています（2026-10-09更新）。コマンド例のビルド・テストはリポジトリのルートで実行してください。各READMEの過去の速度比較・検証記録は、その記載環境での結果です。
+
 ## プロジェクト一覧
 
 | プロジェクト | 用途 | 外部ツール・主なライブラリ |
@@ -14,6 +16,7 @@
 | rb | `[aaa(bbb)]`を`[bbb]`へ変更 | Windows Unicode正規化API |
 | renNFD | ファイル名・フォルダ名をNFCへ正規化 | Windows Unicode正規化API |
 | wp | WebPをJPEGへ変換 | libwebp、libjpeg-turbo |
+| ThumFromZip | ZIP内のJPG/PNGを1枚抽出 | 7z.dll、同梱7-Zip SDKヘッダー |
 
 ## アーカイブ関連
 
@@ -114,6 +117,8 @@ rb.exe "C:\Downloads\[aaa(bbb)]作品.zip"
 
 同名があれば連番を付加し、対象フォルダに`logYYYYMMDD_HHMM.txt`形式の変更ログを追記します。rhとは別のリネーム処理で、今回のrhの安全性・高速化修正は未反映です。
 
+詳細・現行実装の制約: [rb/README.md](rb/README.md)
+
 ### renNFD — 名前をNFCへ正規化
 
 ```powershell
@@ -129,7 +134,27 @@ renNFD.exe "C:\Files"
 - 現行実装には同名衝突を保護する処理がありません。実行前に変更予定を確認してください。
 - コード内の使用法表示は`renNFC.exe`ですが、プロジェクト名は`renNFD`です。
 
+詳細・終了コードなどの制約: [renNFD/README.md](renNFD/README.md)
+
 ## 画像
+
+### ThumFromZip — ZIPから代表画像を抽出
+
+```powershell
+ThumFromZip.exe "C:\Images"
+ThumFromZip.exe --overwrite "C:\Images"
+```
+
+指定フォルダ以下を再帰的に検索し、各ZIPのJPG/JPEG/PNGから、ファイル名をASCIIの大文字小文字を区別せず比較して先頭になる1枚を抽出します。同名ならZIP内のフルパスで比較します。画像の縮小や再エンコードはしません。引数省略時は作業フォルダを対象にします。
+
+- 出力先はZIPの隣です。JPEGは`.jpeg`、PNGは`.png`になります。
+- 同名の`.jpg`・`.jpeg`・`.png`があれば通常はスキップします。
+- `--overwrite`（`-f`）では、一時ファイルへの抽出成功後に対象画像を置き換えます。
+- 元ZIPを保持し、処理前の対象名と結果を表示します。ログへのリダイレクトはUTF-8です。
+- 実行ファイルと同じアーキテクチャの`7z.dll`が必要です。実行ファイルの隣を優先し、なければ`%ProgramFiles%\7-Zip\7z.dll`を探します。隣にあるDLLの読み込みに失敗した場合はエラーになります。
+- bit7zは使用しません。`--dll`や`.pref`によるDLL指定には対応していません。
+
+詳細・検証記録: [ThumFromZip/README.md](ThumFromZip/README.md)
 
 ### wp — WebP→JPEG変換
 
@@ -150,6 +175,7 @@ wp.exe "C:\Images"
 
 - Windows向けです。現在の画像ライブラリ構成と検証はx64を中心としています。
 - a2d・d2z・r2zはbit7zと、実行ファイルと同じアーキテクチャの`7z.dll`が必要です。
+- ThumFromZipも`7z.dll`が必要です。同梱SDKヘッダーを使って直接呼び出します。
 - wpは同梱の`packages/libwebp-1.6.0-windows-x64`と`packages/libjpeg-turbo64`を参照します。
 - rh・rb・renNFDなどの名前変更ツールは7-Zipを使用しません。
 - C++ランタイムの要否は各プロジェクトのビルド設定によって異なります。
@@ -172,6 +198,7 @@ Visual Studioの「C++によるデスクトップ開発」とWindows SDKが必�
 2. 必要な個別プロジェクトを選択します。
 3. 原則として`Release | x64`を選択します。
 4. a2d・d2z・r2zはCMakeを呼び出して依存ライブラリを取得します。初回はネット接続が必要です。
+5. ThumFromZipは同梱ヘッダーでビルドできます。Releaseは`/MT`、Debugは`/MTd`です。実行時の7z.dllは別途必要です。
 
 x64 Native Tools環境から個別にビルドする例:
 
@@ -195,6 +222,8 @@ msbuild rh\rh.vcxproj /p:Configuration=Release /p:Platform=x64
 
 中間ファイルは`out/obj/<Platform>/<Configuration>`へ統一しています。a2d・d2z・r2zのCMake生成物は`out/build/<Platform>`に置きます。`out/`を削除した後の初回ビルドでは依存ライブラリを再取得するため、ネット接続が必要です。実行ファイルの隣の`.lst`・`.pref`は利用者の設定なので、出力フォルダの掃除時には残してください。
 
+a2d・d2z・r2zの`build.ps1`を直接実行し、`-OutputDirectory`を省略した場合の実行ファイルは、各プロジェクトの`out/build/<Platform>/<Configuration>`にあります。Visual Studio経由では共通出力先にもコピーします。各ツールのビルドで7z.dllを自動取得・配置する処理はありません。
+
 ## 回帰テストと詳細資料
 
 a2d・d2z・fs・r2z・rh・wpには、テスト用のコピーや生成ファイルを使うPowerShellスクリプトがあります。`-Exe`にビルド済み実行ファイルのパスを指定します。
@@ -211,6 +240,9 @@ powershell -File rh\test-rh.ps1 -Exe "C:\build\rh.exe"
 | r2z | [README](r2z/README.md) | [test-r2z.ps1](r2z/test-r2z.ps1) |
 | rh | [README](rh/README.md) | [test-rh.ps1](rh/test-rh.ps1) |
 | wp | [README](wp/README.md) | [test-wp.ps1](wp/test-wp.ps1) |
+| rb | [README](rb/README.md) | 専用スクリプトなし |
+| renNFD | [README](renNFD/README.md) | 専用スクリプトなし |
+| ThumFromZip | [README](ThumFromZip/README.md) | 手動検証記録あり。専用スクリプトなし |
 
 これら6プロジェクトの修正・検証結果を、ほかのプロジェクトにそのまま適用できるわけではありません。ファイルの移動・リネーム・削除を行うツールは、まずコピーしたデータで動作を確認してください。
 
