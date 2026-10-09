@@ -39,6 +39,13 @@ struct OrdinalLess {
     }
 };
 
+// Match renNFD: compose decomposed Unicode to NFC and unify wave dashes.
+inline std::wstring NormalizeNameUnicode(const std::wstring& source) {
+    auto value = NormalizePathUnicode(source);
+    for (auto& c : value) if (c == L'\u301c') c = L'\uff5e';
+    return value;
+}
+
 class HeaderRename {
     std::vector<std::wstring> delWords = { L"(成年コミック)", L"成年コミック", L"(一般コミック)", L"一般コミック", L"(商業誌)", L"商業誌", L"(同人誌)", L"同人誌", L"[雑誌]", L"雑誌", L"[]", L"「」" };
 public:
@@ -80,7 +87,7 @@ public:
         if (!ok || !closed) throw std::runtime_error("Cannot write default rule file");
     }
     std::wstring Transform(const std::wstring& source) const {
-        auto value = NormalizePathUnicode(source);
+        auto value = NormalizeNameUnicode(source);
         for (auto& c : value) {
             if (c >= L'Ａ' && c <= L'Ｚ') c = L'A' + (c - L'Ａ');
             else if (c >= L'ａ' && c <= L'ｚ') c = L'a' + (c - L'ａ');
@@ -90,7 +97,6 @@ public:
             else if (c == L'）') c = L')';
             else if (c == L'［' || c == L'【') c = L'[';
             else if (c == L'］' || c == L'】') c = L']';
-            else if (c == L'〜') c = L'～';
         }
         for (const auto& word : delWords) {
             size_t pos = 0;
@@ -102,7 +108,8 @@ public:
             value[output++] = c;
         }
         value.resize(output);
-        return Trim(value);
+        // Removing a word can make a base character and combining mark adjacent.
+        return NormalizeNameUnicode(Trim(value));
     }
 };
 
@@ -112,11 +119,12 @@ class RenameSession {
     std::map<std::pair<std::wstring, std::wstring>, size_t> nextNumbers;
 public:
     void AddName(const std::wstring& name) { occupied.insert(name); }
-    bool Rename(const std::filesystem::path& source, bool isDirectory, const HeaderRename& rules) {
+    bool Rename(const std::filesystem::path& source, bool isDirectory, const HeaderRename& rules, bool applyRules = true) {
         const auto original = source.filename().wstring();
-        const auto stem = rules.Transform(isDirectory ? original : source.stem().wstring());
-        const auto extension = isDirectory ? L"" : source.extension().wstring();
-        if (stem.empty() || stem == L"." || stem == L".." || stem.back() == L'.')
+        const auto name = isDirectory ? original : source.stem().wstring();
+        const auto stem = applyRules ? rules.Transform(name) : NormalizeNameUnicode(name);
+        const auto extension = isDirectory ? L"" : NormalizeNameUnicode(source.extension().wstring());
+        if (applyRules && (stem.empty() || stem == L"." || stem == L".." || stem.back() == L'.'))
             throw std::runtime_error("Transformed name is empty or invalid");
         const auto base = stem + extension;
         if (base == original) return false;

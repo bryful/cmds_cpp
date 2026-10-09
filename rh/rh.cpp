@@ -34,7 +34,7 @@ int wmain(int argc, wchar_t* argv[]) {
         HeaderRename rules;
         const auto path = RulePath();
         if (!rules.LoadWords(path)) rules.SaveWords(path);
-        struct Item { fs::path path; bool directory; };
+        struct Item { fs::path path; bool directory; bool applyRules; };
         std::vector<Item> items;
         RenameSession session;
         for (const auto& entry : fs::directory_iterator(target)) {
@@ -44,13 +44,13 @@ int wmain(int argc, wchar_t* argv[]) {
             // Links are left untouched; do not follow them to determine their type.
             if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
             const bool directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            if (directory || Supported(entry.path())) items.push_back({entry.path(), directory});
+            items.push_back({entry.path(), directory, directory || Supported(entry.path())});
         }
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.path.native() < b.path.native(); });
         size_t changed = 0, unchanged = 0, failed = 0;
         for (const auto& item : items) {
             try {
-                if (session.Rename(item.path, item.directory, rules)) ++changed;
+                if (session.Rename(item.path, item.directory, rules, item.applyRules)) ++changed;
                 else ++unchanged;
             } catch (const std::exception& error) {
                 std::cerr << Utf8(item.path.wstring()) << ": " << error.what() << '\n';

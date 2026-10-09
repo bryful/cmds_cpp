@@ -1,4 +1,6 @@
-﻿#include <Windows.h>
+#include <Windows.h>
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -6,6 +8,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <bit7z/bit7zlibrary.hpp>
+#include <bit7z/bitfilecompressor.hpp>
 
 namespace fs = std::filesystem;
 
@@ -18,21 +22,7 @@ std::runtime_error WindowsError(const char* operation) {
     return std::runtime_error(std::string(operation) + "; Windows error " + std::to_string(GetLastError()));
 }
 
-// Apply the Windows command-line quoting rules, including trailing backslashes.
-std::wstring Quote(const std::wstring& value) {
-    std::wstring result = L"\"";
-    size_t slashes = 0;
-    for (const auto c : value) {
-        if (c == L'\\') { ++slashes; continue; }
-        result.append(c == L'\"' ? slashes * 2 + 1 : slashes, L'\\');
-        result += c;
-        slashes = 0;
-    }
-    result.append(slashes * 2, L'\\');
-    return result + L'\"';
-}
-
-fs::path LoadSevenZipPath() {
+fs::path LoadSevenZipDll() {
     std::vector<wchar_t> module(512);
     for (;;) {
         const auto length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
@@ -59,11 +49,17 @@ fs::path LoadSevenZipPath() {
             const auto first = path.find_first_not_of(L" \t\r\n");
             if (first != std::wstring::npos) {
                 path = path.substr(first, path.find_last_not_of(L" \t\r\n") - first + 1);
-                if (fs::is_regular_file(path)) return fs::absolute(path);
+                fs::path configured(path);
+                if (CompareStringOrdinal(configured.extension().c_str(), -1, L".exe", -1, TRUE) == CSTR_EQUAL)
+                    configured.replace_extension(L".dll");
+                if (!fs::is_regular_file(configured)) throw std::runtime_error("Configured 7z.dll not found");
+                return fs::absolute(configured);
             }
         }
     }
-    return L"C:\\Program Files\\7-Zip\\7z.exe";
+    const auto local = pref.parent_path() / L"7z.dll";
+    if (fs::is_regular_file(local)) return local;
+    return L"C:\\Program Files\\7-Zip\\7z.dll";
 }
 
 struct Handle {
@@ -92,22 +88,25 @@ struct StagingDirectory {
     }
 };
 
-void Compress(const fs::path& executable, const fs::path& target, const fs::path& archive, const std::wstring& mode) {
-    std::wstring command = Quote(executable.wstring()) + L" a -tzip -y -sse -bd -bb0 -sccUTF-8 " +
-        mode + L" -- " + Quote(archive.wstring()) + L" \"*\"";
-    STARTUPINFOW startup = {sizeof(startup)};
-    PROCESS_INFORMATION process = {};
-    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0,
-        nullptr, target.c_str(), &startup, &process)) throw WindowsError("Start 7-Zip");
-    Handle thread{process.hThread};
-    Handle child{process.hProcess};
-    if (WaitForSingleObject(child.value, INFINITE) != WAIT_OBJECT_0) throw WindowsError("Wait for 7-Zip");
-    DWORD code = 0;
-    if (!GetExitCodeProcess(child.value, &code)) throw WindowsError("Get 7-Zip exit code");
-    if (code != 0) throw std::runtime_error("7-Zip failed with exit code " + std::to_string(code));
+void Compress(const bit7z::Bit7zLibrary& library, const fs::path& target, const fs::path& archive,
+    bit7z::BitCompressionLevel level) {
+    bit7z::BitFileCompressor compressor(library, bit7z::BitFormat::Zip);
+    compressor.setCompressionLevel(level);
+    uint64_t total = 0;
+    unsigned int lastStep = 0;
+    compressor.setTotalCallback([&](uint64_t size) { total = size; });
+    compressor.setProgressCallback([&](uint64_t completed) {
+        if (total) {
+            const auto percent = static_cast<unsigned int>(std::min(100.0L, 100.0L * completed / total));
+            const auto step = percent / 10;
+            if (step > lastStep) { lastStep = step; std::cout << "  Compressing: " << step * 10 << "%" << std::endl; }
+        }
+        return true;
+    });
+    compressor.compressDirectoryContents(target.wstring(), archive.wstring());
 }
 
-void DirToZip(const fs::path& input, const fs::path& executable, const std::wstring& mode) {
+void DirToZip(const fs::path& input, const bit7z::Bit7zLibrary& library, bit7z::BitCompressionLevel level) {
     auto directory = fs::absolute(input).lexically_normal();
     while (directory.filename().empty() && directory != directory.root_path()) directory = directory.parent_path();
     if (directory == directory.root_path()) throw std::runtime_error("A drive root cannot be archived");
@@ -127,7 +126,7 @@ void DirToZip(const fs::path& input, const fs::path& executable, const std::wstr
     }
     StagingDirectory staging(directory.parent_path());
     const auto temporaryZip = staging.path / L"result.zip";
-    Compress(executable, target, temporaryZip, mode);
+    Compress(library, target, temporaryZip, level);
     if (!fs::is_regular_file(temporaryZip)) throw std::runtime_error("7-Zip did not create an archive");
     {
         Handle file{CreateFileW(temporaryZip.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
@@ -147,29 +146,38 @@ void DirToZip(const fs::path& input, const fs::path& executable, const std::wstr
 int wmain(int argc, wchar_t* argv[]) {
     SetConsoleOutputCP(CP_UTF8);
     try {
-        std::wstring mode;
+        auto level = bit7z::BitCompressionLevel::Normal;
+        bool modeSet = false;
+        fs::path dll;
         std::vector<fs::path> inputs;
         bool options = true;
         for (int i = 1; i < argc; ++i) {
             const std::wstring argument(argv[i]);
             if (options && argument == L"--") { options = false; continue; }
             if (options && (argument == L"--fast" || argument == L"--store")) {
-                if (!mode.empty()) throw std::runtime_error("Choose only one compression mode");
-                mode = argument == L"--fast" ? L"-mx1" : L"-mx0";
+                if (modeSet) throw std::runtime_error("Choose only one compression mode");
+                modeSet = true;
+                level = argument == L"--fast" ? bit7z::BitCompressionLevel::Fastest : bit7z::BitCompressionLevel::None;
+            } else if (options && argument == L"--dll") {
+                if (!dll.empty() || i + 1 == argc) throw std::runtime_error("--dll requires one DLL path");
+                dll = fs::absolute(argv[++i]);
             } else {
                 if (options && argument.starts_with(L"-")) throw std::runtime_error("Unknown option; use -- before a directory starting with '-'");
                 inputs.emplace_back(argument);
             }
         }
         if (inputs.empty()) {
-            std::cerr << "Usage: d2z [--fast|--store] [--] <directory> [...]\n";
+            std::cerr << "Usage: d2z [--dll path] [--fast|--store] [--] <directory> [...]\n";
             return 1;
         }
-        const auto executable = LoadSevenZipPath();
-        if (!fs::is_regular_file(executable)) throw std::runtime_error("7-Zip not found");
+        if (dll.empty()) dll = LoadSevenZipDll();
+        if (!fs::is_regular_file(dll)) throw std::runtime_error("7z.dll not found");
+        bit7z::Bit7zLibrary library(fs::absolute(dll).wstring());
         size_t failed = 0;
+        size_t current = 0;
         for (const auto& input : inputs) {
-            try { DirToZip(input, executable, mode); }
+            std::cout << '[' << ++current << '/' << inputs.size() << "] Compressing: " << Text(input) << std::endl;
+            try { DirToZip(input, library, level); }
             catch (const std::exception& error) {
                 std::cerr << Text(input) << ": " << error.what() << '\n';
                 ++failed;

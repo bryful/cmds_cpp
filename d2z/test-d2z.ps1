@@ -1,11 +1,11 @@
-﻿param([Parameter(Mandatory=$true)][string]$Exe, [string]$SevenZip='C:\Program Files\7-Zip\7z.exe')
+﻿param([Parameter(Mandatory=$true)][string]$Exe, [string]$SevenZip='C:\Program Files\7-Zip\7z.exe', [string]$Dll='C:\Program Files\7-Zip\7z.dll')
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.IO.Compression
 $root=Join-Path $PSScriptRoot ('d2z-test-'+[guid]::NewGuid())
 New-Item -ItemType Directory $root | Out-Null
 $runner=Join-Path $root 'd2z.exe'
 Copy-Item -LiteralPath (Resolve-Path $Exe).Path -Destination $runner
-[IO.File]::WriteAllText((Join-Path $root 'd2z.pref'), $SevenZip, [Text.UTF8Encoding]::new($true))
+[IO.File]::WriteAllText((Join-Path $root 'd2z.pref'), $Dll, [Text.UTF8Encoding]::new($true))
 function Assert($condition,$message) { if (!$condition) { throw $message } }
 function Directory($name) { $p=Join-Path $root $name; New-Item -ItemType Directory $p | Out-Null; return $p }
 function File($directory,$name,$value='sample') { [IO.File]::WriteAllText((Join-Path $directory $name),$value) }
@@ -19,7 +19,7 @@ try {
     $p=Directory '日本語 flat'
     File $p 'a.txt'; File $p 'no-extension'; File $p '.hidden'
     Push-Location $root
-    try { & $runner '.\日本語 flat\' } finally { Pop-Location }
+    try { $progress = @(& $runner '.\日本語 flat\\'); $progress | Write-Output; Assert ($progress[0] -like '[[]1/1] Compressing:*') 'Start progress missing' } finally { Pop-Location }
     Assert ($LASTEXITCODE -eq 0) 'Relative/trailing separator conversion failed'
     $names=Entries ($p+'.zip')
     Assert ($names.Count -eq 3 -and $names -contains 'a.txt' -and $names -contains 'no-extension' -and $names -contains '.hidden') 'Unexpected ZIP paths'
@@ -76,7 +76,31 @@ try {
         }
     }
     Assert ((Get-ChildItem $root -Directory -Filter '.d2z-*.tmp').Count -eq 0) 'Temporary directories leaked'
-    Write-Output 'All 8 cases passed.'
+    [IO.File]::WriteAllText((Join-Path $root 'd2z.pref'),$SevenZip,[Text.UTF8Encoding]::new($false))
+    $p=Directory 'legacy'; File $p 'a.txt'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0) 'Legacy pref migration failed'
+
+    [IO.File]::WriteAllText((Join-Path $root 'd2z.pref'),'missing.dll',[Text.UTF8Encoding]::new($false))
+    $p=Directory 'explicit'; File $p 'a.txt'
+    & $runner --dll $Dll $p
+    Assert ($LASTEXITCODE -eq 0) 'Explicit DLL override failed'
+    [IO.File]::WriteAllText((Join-Path $root 'd2z.pref'),$Dll,[Text.UTF8Encoding]::new($true))
+
+    $p=Directory 'images.v1'; File $p 'a.txt'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0 -and (Test-Path ($p+'.zip'))) 'Dotted directory output changed'
+
+    $p=Directory 'invalid-mode'; File $p 'a.txt'
+    & $runner --fast --store $p
+    Assert ($LASTEXITCODE -ne 0 -and !(Test-Path ($p+'.zip'))) 'Conflicting modes accepted'
+
+    $p=Directory '-leading'; File $p 'a.txt'
+    Push-Location $root
+    try { & $runner -- '-leading' } finally { Pop-Location }
+    Assert ($LASTEXITCODE -eq 0 -and (Test-Path ($p+'.zip'))) 'Option terminator failed'
+    Assert ((Get-ChildItem $root -Directory -Filter '.d2z-*.tmp').Count -eq 0) 'Temporary directories leaked'
+    Write-Output 'All 13 cases passed.'
 } finally {
     if ([IO.Path]::GetDirectoryName($root) -eq $PSScriptRoot) { Remove-Item -LiteralPath $root -Recurse -Force }
 }

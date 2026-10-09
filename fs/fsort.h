@@ -1,154 +1,134 @@
 #pragma once
-// C# FileSortクラスのC++17移植版
-#include <iostream>
-#include <filesystem>
-#include <regex>
-#include <string>
-#include <algorithm>
 #include <Windows.h>
+#include <filesystem>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-// wstring → UTF-8 string 変換関数（Windows専用）
-inline std::string WStringToUtf8_fsort(const std::wstring& wstr) {
-    if (wstr.empty()) return "";
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
-    std::string str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &str[0], size_needed, NULL, NULL);
-    return str;
+inline std::string Text(const fs::path& path) {
+    const auto value = path.u8string();
+    return std::string(value.begin(), value.end());
 }
 
-// UTF-8 string → wstring 変換関数（Windows専用）
-inline std::wstring Utf8ToWString_fsort(const std::string& str) {
-    if (str.empty()) return L"";
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), NULL, 0);
-    std::wstring wstr(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), &wstr[0], size_needed);
-    return wstr;
+inline std::runtime_error WindowsError(const char* operation) {
+    return std::runtime_error(std::string(operation) + "; Windows error " + std::to_string(GetLastError()));
 }
 
-// [xxxx]のxxxx部分を取得
-std::string GetBracketContent(const std::string& src) {
-    std::smatch m;
-    std::regex re(R"(\[(.*?)\])");
-    if (std::regex_search(src, m, re)) {
-        return m[1].str();
-    }
-    return "";
+inline DWORD Attributes(const fs::path& path) {
+    const auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) throw WindowsError("Inspect path");
+    return attributes;
 }
 
-// FSort: ファイルを[xxxx]ディレクトリに移動
-std::string FSort(const std::string& p) {
-    // ★UTF-8文字列をワイド文字列に変換してからpathを構築
-    fs::path path(Utf8ToWString_fsort(p));
-    if (!fs::exists(path) || !fs::is_regular_file(path)) {
-        return "Error: File not found. " + p;
-    }
-    // ★ .string()の代わりに.wstring()を使用してUTF-8に変換
-    std::string fn = WStringToUtf8_fsort(path.filename().wstring());
-    std::string cnt = GetBracketContent(fn);
-    std::string ext = WStringToUtf8_fsort(path.extension().wstring());
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    if (ext != ".zip" && ext != ".rar") {
-        return "Skipped (not zip/rar). " + fn;
-    }
-    if (cnt.empty()) {
-        return "No brackets found. " + fn;
-    }
-    fs::path newDir = path.parent_path() / Utf8ToWString_fsort(cnt);
-    if (!fs::exists(newDir)) {
-        fs::create_directory(newDir);
-    }
-    fs::path newPath = newDir / path.filename();
-    if (fs::exists(newPath)) {
-        return "File already exists in target directory. " + WStringToUtf8_fsort(newPath.wstring());
-    }
-    try {
-        fs::rename(path, newPath);
-        return "Moved: " + fn + " -> " + WStringToUtf8_fsort(newDir.wstring());
-    }
-    catch (const std::exception& ex) {
-        return std::string("Error moving file: ") + ex.what();
+inline void RequireDirectory(const fs::path& path) {
+    const auto attributes = Attributes(path);
+    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) throw std::runtime_error("Directory links are not supported");
+    if (!(attributes & FILE_ATTRIBUTE_DIRECTORY)) throw std::runtime_error("Path is not a directory");
+}
+
+inline void ValidateRoot(const fs::path& root) {
+    // Also reject a link in an explicitly supplied ancestor path.
+    for (auto path = root;; path = path.parent_path()) {
+        RequireDirectory(path);
+        if (path == path.root_path()) break;
     }
 }
 
-// サブディレクトリ内のファイルを一つ上の階層に移動し、空なら削除
-std::string FsortDirSub(const fs::path& targetPath) {
-    std::string ret;
-    if (!fs::exists(targetPath) || !fs::is_directory(targetPath)) return ret;
+inline bool Equal(const std::wstring& text, const wchar_t* other) {
+    return CompareStringOrdinal(text.c_str(), -1, other, -1, TRUE) == CSTR_EQUAL;
+}
 
-    std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator(targetPath)) {
-        if (entry.is_regular_file()) {
-            files.push_back(entry.path());
-        }
+inline void ValidateName(const std::wstring& name) {
+    if (name.empty() || name == L"." || name == L".." || name.back() == L'.' || name.back() == L' ' ||
+        name.find_first_of(L"\\/:<>\"|?*", 0) != std::wstring::npos)
+        throw std::runtime_error("Unsafe destination directory name");
+    for (const auto c : name) if (c < 32) throw std::runtime_error("Unsafe destination directory name");
+    const auto stem = name.substr(0, name.find(L'.'));
+    if (Equal(stem, L"CON") || Equal(stem, L"PRN") || Equal(stem, L"AUX") || Equal(stem, L"NUL") ||
+        Equal(stem, L"CONIN$") || Equal(stem, L"CONOUT$"))
+        throw std::runtime_error("Reserved destination directory name");
+    if (stem.size() == 4 && (Equal(stem.substr(0, 3), L"COM") || Equal(stem.substr(0, 3), L"LPT")) &&
+        ((stem[3] >= L'0' && stem[3] <= L'9') || stem[3] == L'\u00b9' || stem[3] == L'\u00b2' || stem[3] == L'\u00b3'))
+        throw std::runtime_error("Reserved destination directory name");
+}
+
+struct SortResult {
+    size_t moved = 0, skipped = 0, failed = 0;
+    void Error(const fs::path& path, const std::exception& error) {
+        ++failed;
+        std::cerr << Text(path) << ": " << error.what() << '\n';
     }
-    if (files.empty()) return ret;
+};
 
+inline std::vector<fs::path> Entries(const fs::path& directory) {
+    RequireDirectory(directory);
+    std::vector<fs::path> paths;
+    for (const auto& entry : fs::directory_iterator(directory)) paths.push_back(entry.path());
+    return paths;
+}
+
+inline void MoveFile(const fs::path& source, const fs::path& destination, SortResult& result) {
+    RequireDirectory(source.parent_path());
+    RequireDirectory(destination.parent_path());
+    const auto attributes = Attributes(source);
+    if (attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
+        throw std::runtime_error("Only regular files can be moved");
+    // No REPLACE_EXISTING or COPY_ALLOWED: collisions cannot overwrite data.
+    if (!MoveFileExW(source.c_str(), destination.c_str(), 0)) throw WindowsError("Move file");
+    ++result.moved;
+    std::cout << "Moved: " << Text(source) << " -> " << Text(destination) << '\n';
+}
+
+inline void SortFile(const fs::path& file, SortResult& result) {
+    const auto attributes = Attributes(file);
+    if (attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) { ++result.skipped; return; }
+    const auto extension = file.extension().wstring();
+    if (!Equal(extension, L".zip") && !Equal(extension, L".rar")) { ++result.skipped; return; }
+    const auto name = file.filename().wstring();
+    const auto opening = name.find(L'[');
+    const auto closing = opening == std::wstring::npos ? opening : name.find(L']', opening + 1);
+    if (closing == std::wstring::npos || closing == opening + 1) { ++result.skipped; return; }
+    const auto group = name.substr(opening + 1, closing - opening - 1);
+    ValidateName(group);
+    const auto directory = file.parent_path() / group;
+    if (!CreateDirectoryW(directory.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+        throw WindowsError("Create destination directory");
+    RequireDirectory(directory);
+    MoveFile(file, directory / file.filename(), result);
+}
+
+inline void ReverseDirectory(const fs::path& directory, SortResult& result) {
+    const auto files = Entries(directory);
     for (const auto& file : files) {
-        fs::path d = file.parent_path();
-        fs::path d2 = d.parent_path();
-        fs::path fn = file.filename();
-        fs::path dest = d2 / fn;
         try {
-            fs::rename(file, dest);
-            ret += "moved file:" + WStringToUtf8_fsort(fn.wstring()) + "\n";
-        }
-        catch (const std::exception& ex) {
-            ret += "Error moving file: " + std::string(ex.what()) + "\n" + WStringToUtf8_fsort(fn.wstring()) + "\n";
-        }
+            const auto attributes = Attributes(file);
+            if (attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) { ++result.skipped; continue; }
+            MoveFile(file, directory.parent_path() / file.filename(), result);
+        } catch (const std::exception& error) { result.Error(file, error); }
     }
-    // 残ファイルがなければディレクトリ削除
-    if (fs::is_empty(targetPath)) {
-        fs::remove(targetPath);
+    // Preserve pre-existing empty directories; remove only a directory we emptied.
+    if (!files.empty()) {
+        RequireDirectory(directory);
+        if (fs::is_empty(directory) && !RemoveDirectoryW(directory.c_str())) throw WindowsError("Remove empty directory");
     }
-    return ret;
 }
 
-// 指定ディレクトリ内のサブディレクトリを処理
-std::string FsortDir(const std::string& targetPath) {
-    std::string ret;
-    // ★UTF-8文字列をワイド文字列に変換してからpathを構築
-    fs::path path(Utf8ToWString_fsort(targetPath));
-    if (fs::exists(path) && fs::is_regular_file(path)) {
-        path = path.parent_path();
+inline SortResult Sort(const fs::path& root, bool reverse) {
+    SortResult result;
+    for (const auto& path : Entries(root)) {
+        try {
+            const auto attributes = Attributes(path);
+            if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+                ++result.skipped;
+                std::cout << "Skipped link: " << Text(path) << '\n';
+            } else if (reverse) {
+                if (attributes & FILE_ATTRIBUTE_DIRECTORY) ReverseDirectory(path, result);
+                else ++result.skipped;
+            } else SortFile(path, result);
+        } catch (const std::exception& error) { result.Error(path, error); }
     }
-    if (!fs::exists(path) || !fs::is_directory(path)) return ret;
-
-    for (const auto& entry : fs::directory_iterator(path)) {
-        if (entry.is_directory()) {
-            std::string s = FsortDirSub(entry.path());
-            if (!s.empty()) ret += s;
-        }
-    }
-    return ret;
-}
-
-std::wstring NormalizePathUnicode(const std::wstring& path) {
-    int len = NormalizeString(NormalizationC, path.c_str(), -1, NULL, 0);
-    if (len <= 0) return path;
-    
-    std::vector<wchar_t> buffer(len);
-    int result = NormalizeString(NormalizationC, path.c_str(), -1, buffer.data(), len);
-    if (result <= 0) return path;
-    
-    return std::wstring(buffer.data(), result - 1);
-}
-
-// wstring → UTF-8 string 変換関数（Windows専用）
-std::string WStringToUtf8(const std::wstring& wstr) {
-    if (wstr.empty()) return "";
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
-    std::string str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &str[0], size_needed, NULL, NULL);
-    return str;
-}
-
-// UTF-8 string → wstring 変換関数（Windows専用）
-std::wstring Utf8ToWString(const std::string& str) {
-    if (str.empty()) return L"";
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), NULL, 0);
-    std::wstring wstr(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), &wstr[0], size_needed);
-    return wstr;
+    return result;
 }

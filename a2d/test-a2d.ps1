@@ -1,6 +1,7 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$Exe,
-    [string]$SevenZip = 'C:\Program Files\7-Zip\7z.exe'
+    [string]$SevenZip = 'C:\Program Files\7-Zip\7z.exe',
+    [string]$Dll = 'C:\Program Files\7-Zip\7z.dll'
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
@@ -8,7 +9,7 @@ $root = Join-Path $PSScriptRoot ('a2d-test-' + [guid]::NewGuid())
 New-Item -ItemType Directory $root | Out-Null
 $runner = Join-Path $root 'a2d.exe'
 Copy-Item -LiteralPath (Resolve-Path $Exe).Path -Destination $runner
-[IO.File]::WriteAllText((Join-Path $root 'a2d.pref'), $SevenZip, [Text.UTF8Encoding]::new($true))
+[IO.File]::WriteAllText((Join-Path $root 'a2d.pref'), $Dll, [Text.UTF8Encoding]::new($true))
 function Assert($condition, $message) { if (!$condition) { throw $message } }
 function Zip($name, $entries) {
     $path = Join-Path $root $name
@@ -79,7 +80,49 @@ try {
     Assert (Test-Path (Join-Path $root 'empty-folder') -PathType Container) 'Empty folder missing'
     Assert ((Get-ChildItem $root -Directory -Filter '.a2d-*.tmp').Count -eq 0) 'Staging directories leaked'
     Assert ((Get-ChildItem $root -Filter '*.zip').Count -eq 9) 'Source archives changed'
-    Write-Output 'All 8 cases passed.'
+    $archive = Zip 'traversal.zip' @{'../escape.txt'='text'}
+    & $runner $archive
+    Assert ($LASTEXITCODE -ne 0 -and !(Test-Path (Join-Path $root 'escape.txt')) -and !(Test-Path (Join-Path $root 'traversal'))) 'Traversal path accepted'
+
+    $entries = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    $entries.Add('a.txt','first'); $entries.Add('A.txt','second')
+    $archive = Zip 'duplicates.zip' $entries
+    & $runner $archive
+    Assert ($LASTEXITCODE -ne 0 -and !(Test-Path (Join-Path $root 'duplicates'))) 'Unsafe duplicate accepted'
+
+    if (-not ('RarFixture' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'RarFixture.cs') }
+    $archive = Join-Path $root 'rar4.RAR'
+    [RarFixture]::Write($archive,@('root/a.txt','root/sub/upper.SCR'),@('rar contents','excluded'),$false)
+    $hash = (Get-FileHash -LiteralPath $archive).Hash
+    & $runner --dll $Dll $archive
+    Assert ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText((Join-Path $root 'rar4/a.txt')) -eq 'rar contents') 'RAR4 failed'
+    Assert (!(Test-Path (Join-Path $root 'rar4/sub/upper.SCR'))) 'RAR SCR exclusion failed'
+    Assert ((Get-FileHash -LiteralPath $archive).Hash -eq $hash) 'Source RAR changed'
+
+    $archive = Join-Path $root 'rar-crc.rar'
+    [RarFixture]::Write($archive,@('a.txt'),@('bad'),$true)
+    & $runner $archive
+    Assert ($LASTEXITCODE -ne 0 -and !(Test-Path (Join-Path $root 'rar-crc'))) 'Corrupt RAR published'
+
+    # Legacy .pref paths are translated to the DLL in the same directory.
+    [IO.File]::WriteAllText((Join-Path $root 'a2d.pref'),$SevenZip,[Text.UTF8Encoding]::new($false))
+    $archive = Zip 'legacy.zip' @{'ok.txt'='legacy'}
+    & $runner $archive
+    Assert ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText((Join-Path $root 'legacy/ok.txt')) -eq 'legacy') 'Legacy pref migration failed'
+    Assert ((Get-ChildItem $root -Directory -Filter '.a2d-*.tmp').Count -eq 0) 'Staging directories leaked after safety tests'
+    $archive = Zip 'unix-link.zip' @{'link'='../escape.txt'}
+    $stream = [IO.File]::Open($archive,'Open','ReadWrite')
+    $zip = [IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Update)
+    $zip.Entries[0].ExternalAttributes = [int]0xA1FF0000
+    $zip.Dispose(); $stream.Dispose()
+    $bytes = [IO.File]::ReadAllBytes($archive)
+    for ($i=0; $i -lt $bytes.Length-46; $i++) {
+        if ($bytes[$i] -eq 80 -and $bytes[$i+1] -eq 75 -and $bytes[$i+2] -eq 1 -and $bytes[$i+3] -eq 2) { $bytes[$i+5] = 3 }
+    }
+    [IO.File]::WriteAllBytes($archive,$bytes)
+    & $runner $archive
+    Assert ($LASTEXITCODE -ne 0 -and !(Test-Path (Join-Path $root 'unix-link'))) 'Unix symlink accepted'
+    Write-Output 'All 14 cases passed.'
 } finally {
     if ([IO.Path]::GetDirectoryName($root) -eq $PSScriptRoot) { Remove-Item -LiteralPath $root -Recurse -Force }
 }

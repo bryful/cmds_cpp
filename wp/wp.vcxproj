@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -70,6 +70,10 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildThisFileDirectory)out\obj\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(MSBuildThisFileDirectory)..\$(Platform)\$(Configuration)\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -104,14 +108,14 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>..\libjpeg-turbo64\include;..\libwebp-1.6.0-windows-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\packages\libjpeg-turbo64\include;..\packages\libwebp-1.6.0-windows-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- Match the bundled static codecs, which use the release static CRT. -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\libjpeg-turbo64\lib;..\libwebp-1.6.0-windows-x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\packages\libjpeg-turbo64\lib;..\packages\libwebp-1.6.0-windows-x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>turbojpeg-static.lib;libwebp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -125,14 +129,14 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>..\libjpeg-turbo64\include;..\libwebp-1.6.0-windows-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\packages\libjpeg-turbo64\include;..\packages\libwebp-1.6.0-windows-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- Match the bundled static codecs, which use the release static CRT. -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\libjpeg-turbo64\lib;..\libwebp-1.6.0-windows-x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\packages\libjpeg-turbo64\lib;..\packages\libwebp-1.6.0-windows-x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>turbojpeg-static.lib;libwebp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -143,17 +147,12 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\libwebp-1.6.0-windows-x64\include\webp\decode.h" />
-    <ClInclude Include="stb_image.h" />
-    <ClInclude Include="stb_image_write.h" />
+    <ClInclude Include="..\packages\libwebp-1.6.0-windows-x64\include\webp\decode.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <Library Include="..\libwebp-1.6.0-windows-x64\lib\libwebp.lib" />
-    <Library Include="..\libwebp-1.6.0-windows-x64\lib\libwebpdemux.lib" />
-    <Library Include="..\libwebp-1.6.0-windows-x64\lib\libwebpmux.lib" />
+    <Library Include="..\packages\libwebp-1.6.0-windows-x64\lib\libwebp.lib" />
+    <Library Include="..\packages\libwebp-1.6.0-windows-x64\lib\libwebpdemux.lib" />
+    <Library Include="..\packages\libwebp-1.6.0-windows-x64\lib\libwebpmux.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -361,3 +361,25 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Local CMake caches and regression/benchmark scratch data
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+_deps/
+/.review-*/
+/a2d/a2d-test-*/
+/d2z/d2z-test-*/
+/r2z/r2z-test-*/
+/fs/fs-test-*/
+/rh/rh-test-*/
+/wp/wp-test-*/
+# Interrupted archive/conversion staging directories
+.a2d-*.tmp/
+.d2z-*.tmp/
+.r2z-*.tmp/
+
+# Vendored wp dependencies (including tools used by regression tests)
+!/packages/libjpeg-turbo64/
+!/packages/libjpeg-turbo64/**
+!/packages/libwebp-1.6.0-windows-x64/
+!/packages/libwebp-1.6.0-windows-x64/**

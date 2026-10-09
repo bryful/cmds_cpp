@@ -69,7 +69,51 @@ try {
     $p=Case 'default-rules'; Remove-Item -LiteralPath $rules; File $p '(成年コミック)Ａ.zip'
     & $runner $p
     Assert ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $p 'A.zip')) -and (Test-Path $rules)) 'Default rules failed'
-    Write-Output 'All 9 cases passed.'
+    Rules '(tag)'
+    $p=Case 'nfd-text'
+    $decomposed='e'+[char]0x301
+    $composed=[string][char]0xe9
+    File $p ('(tag)Ａ'+$decomposed+'.txt') 'text'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0) 'Unsupported file normalization failed'
+    Assert ([IO.File]::ReadAllText((Join-Path $p ('(tag)Ａ'+$composed+'.txt'))) -eq 'text') 'Unsupported file lost contents or had rename rules applied'
+
+    $p=Case 'nfd-directory'
+    $oldDir=Join-Path $p ('か'+[char]0x3099)
+    New-Item -ItemType Directory $oldDir | Out-Null
+    File $oldDir ($decomposed+'.txt') 'nested'
+    & $runner $p
+    $newDir=Join-Path $p ([string][char]0x304c)
+    Assert ($LASTEXITCODE -eq 0 -and (Test-Path $newDir -PathType Container)) 'NFD directory not composed'
+    $names=@(Get-ChildItem -LiteralPath $newDir | ForEach-Object {$_.Name})
+    Assert ($names.Count -eq 1 -and [StringComparer]::Ordinal.Equals($names[0],$decomposed+'.txt')) 'Nested name changed recursively'
+
+    $p=Case 'nfd-extension'
+    File $p ('file.'+$decomposed) 'extension'
+    File $p $decomposed 'no extension'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0) 'Extension or extensionless normalization failed'
+    Assert ([IO.File]::ReadAllText((Join-Path $p ('file.'+$composed))) -eq 'extension') 'Extension not normalized'
+    Assert ([IO.File]::ReadAllText((Join-Path $p $composed)) -eq 'no extension') 'Extensionless file not normalized'
+
+    $p=Case 'nfd-wave'
+    File $p ('wave'+[char]0x301c+'.txt') 'wave'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText((Join-Path $p ('wave'+[char]0xff5e+'.txt'))) -eq 'wave') 'Wave dash on unsupported file not normalized'
+
+    $p=Case 'nfd-collision'
+    File $p ($composed+'.txt') 'original'; File $p ($decomposed+'.txt') 'incoming'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0) 'NFD collision failed'
+    Assert ([IO.File]::ReadAllText((Join-Path $p ($composed+'.txt'))) -eq 'original') 'NFC destination overwritten'
+    Assert ([IO.File]::ReadAllText((Join-Path $p ($composed+'_1.txt'))) -eq 'incoming') 'NFD source lost'
+    $output=& $runner $p
+    Assert ($LASTEXITCODE -eq 0 -and ($output -join '') -match 'Renamed: 0') 'Normalization not idempotent'
+    $p=Case 'nfd-after-rules'
+    File $p ('e(tag)'+[char]0x301+'.mp4') 'joined'
+    & $runner $p
+    Assert ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText((Join-Path $p ($composed+'.mp4'))) -eq 'joined') 'Rule removal left decomposed Unicode'
+    Write-Output 'All 15 cases passed.'
 } finally {
     if ([IO.Path]::GetDirectoryName($root) -eq $PSScriptRoot) { Remove-Item -LiteralPath $root -Recurse -Force }
 }

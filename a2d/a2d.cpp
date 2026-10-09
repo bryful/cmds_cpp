@@ -1,4 +1,4 @@
-﻿#include <Windows.h>
+#include <Windows.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,21 +18,7 @@ std::runtime_error WindowsError(const char* operation) {
     return std::runtime_error(std::string(operation) + "; Windows error " + std::to_string(GetLastError()));
 }
 
-// Apply the Windows command-line quoting rules, including trailing backslashes.
-std::wstring Quote(const std::wstring& value) {
-    std::wstring result = L"\"";
-    size_t slashes = 0;
-    for (const auto c : value) {
-        if (c == L'\\') { ++slashes; continue; }
-        result.append(c == L'\"' ? slashes * 2 + 1 : slashes, L'\\');
-        result += c;
-        slashes = 0;
-    }
-    result.append(slashes * 2, L'\\');
-    return result + L'\"';
-}
-
-fs::path LoadSevenZipPath() {
+fs::path LoadSevenZipDll() {
     std::vector<wchar_t> module(512);
     for (;;) {
         const auto length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
@@ -59,17 +45,18 @@ fs::path LoadSevenZipPath() {
             const auto first = path.find_first_not_of(L" \t\r\n");
             if (first != std::wstring::npos) {
                 path = path.substr(first, path.find_last_not_of(L" \t\r\n") - first + 1);
-                if (fs::is_regular_file(path)) return fs::absolute(path);
+                fs::path configured(path);
+                if (CompareStringOrdinal(configured.extension().c_str(), -1, L".exe", -1, TRUE) == CSTR_EQUAL)
+                    configured.replace_extension(L".dll");
+                if (!fs::is_regular_file(configured)) throw std::runtime_error("Configured 7z.dll not found");
+                return fs::absolute(configured);
             }
         }
     }
-    return L"C:\\Program Files\\7-Zip\\7z.exe";
+    const auto local = pref.parent_path() / L"7z.dll";
+    if (fs::is_regular_file(local)) return local;
+    return L"C:\\Program Files\\7-Zip\\7z.dll";
 }
-
-struct Handle {
-    HANDLE value;
-    ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
-};
 
 struct StagingDirectory {
     fs::path path;
@@ -92,47 +79,83 @@ struct StagingDirectory {
     }
 };
 
-void Extract(const fs::path& executable, const fs::path& archive, const fs::path& staging) {
-    std::wstring command = Quote(executable.wstring()) + L" x -y -bd -bb0 -sccUTF-8 -ssc- -xr!*.scr " +
-        Quote(L"-o" + staging.wstring()) + L" -- " + Quote(archive.wstring());
-    STARTUPINFOW startup = {sizeof(startup)};
-    PROCESS_INFORMATION process = {};
-    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0,
-        nullptr, nullptr, &startup, &process)) throw WindowsError("Start 7-Zip");
-    Handle thread{process.hThread};
-    Handle child{process.hProcess};
-    if (WaitForSingleObject(child.value, INFINITE) != WAIT_OBJECT_0) throw WindowsError("Wait for 7-Zip");
-    DWORD code = 0;
-    if (!GetExitCodeProcess(child.value, &code)) throw WindowsError("Get 7-Zip exit code");
-    if (code != 0) throw std::runtime_error("7-Zip failed with exit code " + std::to_string(code));
+#include <bit7z/bit7zlibrary.hpp>
+#include <bit7z/bitarchivereader.hpp>
+#include <set>
+
+struct OrdinalLess {
+    bool operator()(const std::wstring& a, const std::wstring& b) const {
+        return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+    }
+};
+
+bool Equal(const std::wstring& a, const wchar_t* b) {
+    return CompareStringOrdinal(a.c_str(), -1, b, -1, TRUE) == CSTR_EQUAL;
 }
 
-bool IsScr(const fs::path& path) {
-    const auto extension = path.extension().wstring();
-    return CompareStringOrdinal(extension.c_str(), -1, L".scr", -1, TRUE) == CSTR_EQUAL;
+void ValidatePath(const std::wstring& name) {
+    if (name.empty() || name.find_first_of(L":<>\"|?*\0", 0, 8) != std::wstring::npos)
+        throw std::runtime_error("Unsafe archive entry name");
+    const fs::path path(name);
+    if (path.has_root_path()) throw std::runtime_error("Absolute archive entry path is not supported");
+    for (const auto& component : path) {
+        const auto part = component.wstring();
+        if (part == L"." || part == L".." || (!part.empty() && (part.back() == L'.' || part.back() == L' ')))
+            throw std::runtime_error("Unsafe archive entry path");
+    }
 }
 
-void ArcToDir(const fs::path& input, const fs::path& executable) {
+const bit7z::BitInFormat& RarFormat(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    char signature[8] = {};
+    input.read(signature, sizeof(signature));
+    const auto count = input.gcount();
+    if (count >= 7 && std::string(signature, 6) == std::string("Rar!\x1a\x07", 6)) {
+        if (signature[6] == 0) return bit7z::BitFormat::Rar;
+        if (count == 8 && signature[6] == 1 && signature[7] == 0) return bit7z::BitFormat::Rar5;
+    }
+    throw std::runtime_error("Input is not a RAR4/RAR5 archive");
+}
+
+void ArcToDir(const fs::path& input, const bit7z::Bit7zLibrary& library) {
     const auto archive = fs::absolute(input);
     if (!fs::is_regular_file(archive)) throw std::runtime_error("Archive file not found");
     const auto extension = archive.extension().wstring();
-    if (CompareStringOrdinal(extension.c_str(), -1, L".zip", -1, TRUE) != CSTR_EQUAL &&
-        CompareStringOrdinal(extension.c_str(), -1, L".rar", -1, TRUE) != CSTR_EQUAL)
-        throw std::runtime_error("Only ZIP and RAR are supported");
+    const bool rar = Equal(extension, L".rar");
+    if (!rar && !Equal(extension, L".zip")) throw std::runtime_error("Only ZIP and RAR are supported");
     const auto destination = archive.parent_path() / archive.stem();
     if (destination.filename().empty() || destination.filename() == L"." || destination.filename() == L"..")
         throw std::runtime_error("Invalid output directory name");
-    // symlink_status also detects dangling links, which must not be overwritten.
     if (fs::exists(fs::symlink_status(destination))) throw std::runtime_error("Output already exists");
     StagingDirectory staging(archive.parent_path());
-    Extract(executable, archive, staging.path);
-
+    {
+        bit7z::BitArchiveReader reader(library, archive.wstring(), rar ? RarFormat(archive) : bit7z::BitFormat::Zip);
+        bit7z::IndicesVector selected;
+        std::set<std::wstring, OrdinalLess> names;
+        for (const auto& item : reader) {
+            const auto name = item.path();
+            ValidatePath(name);
+            if (!item.isDir() && Equal(fs::path(name).extension().wstring(), L".scr")) continue;
+            if (item.isEncrypted()) throw std::runtime_error("Encrypted archives are not supported");
+            if (item.isSymLink() || (item.attributes() & FILE_ATTRIBUTE_REPARSE_POINT) ||
+                !reader.itemProperty(item.index(), bit7z::BitProperty::SymLink).isEmpty() ||
+                !reader.itemProperty(item.index(), bit7z::BitProperty::HardLink).isEmpty())
+                throw std::runtime_error("Archive links are not supported");
+            auto key = fs::path(name).lexically_normal().wstring();
+            while (!key.empty() && (key.back() == L'\\' || key.back() == L'/')) key.pop_back();
+            if (!names.insert(key).second) throw std::runtime_error("Duplicate archive entry path");
+            selected.push_back(item.index());
+        }
+        // In bit7z an empty index vector extracts everything; do not pass one.
+        if (selected.empty()) throw std::runtime_error("Archive has no publishable entries");
+        reader.extractTo(staging.path.wstring(), selected);
+    }
     // Do not publish link/reparse entries or a screen saver missed by the extractor.
     for (const auto& entry : fs::recursive_directory_iterator(staging.path)) {
         const auto attributes = GetFileAttributesW(entry.path().c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES) throw WindowsError("Inspect extracted entry");
         if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) throw std::runtime_error("Extracted links are not supported");
-        if (!entry.is_directory() && IsScr(entry.path())) throw std::runtime_error("Unexpected .scr file after extraction");
+        if (!entry.is_directory() && Equal(entry.path().extension().wstring(), L".scr")) throw std::runtime_error("Unexpected .scr file after extraction");
     }
     auto contents = fs::directory_iterator(staging.path);
     if (contents == fs::directory_iterator()) throw std::runtime_error("Archive has no publishable entries");
@@ -148,22 +171,34 @@ void ArcToDir(const fs::path& input, const fs::path& executable) {
 
 int wmain(int argc, wchar_t* argv[]) {
     SetConsoleOutputCP(CP_UTF8);
-    if (argc < 2) { std::cerr << "Usage: a2d <archive.zip|archive.rar> [...]\n"; return 1; }
     try {
-        const auto executable = LoadSevenZipPath();
-        if (!fs::is_regular_file(executable)) throw std::runtime_error("7-Zip not found");
-        size_t failed = 0;
+        std::vector<fs::path> inputs;
+        fs::path dll;
+        bool options = true;
         for (int i = 1; i < argc; ++i) {
-            try { ArcToDir(argv[i], executable); }
-            catch (const std::exception& error) {
-                std::cerr << Text(argv[i]) << ": " << error.what() << '\n';
-                ++failed;
+            const std::wstring arg(argv[i]);
+            if (options && arg == L"--") { options = false; continue; }
+            if (options && arg == L"--dll") {
+                if (!dll.empty() || i + 1 == argc) throw std::runtime_error("--dll requires one DLL path");
+                dll = fs::absolute(argv[++i]);
+            } else {
+                if (options && arg.starts_with(L"-")) throw std::runtime_error("Unknown option");
+                inputs.emplace_back(arg);
             }
         }
-        std::cout << "Processed: " << argc - 1 << ", failed: " << failed << '\n';
+        if (inputs.empty()) { std::cerr << "Usage: a2d [--dll path] [--] <archive.zip|archive.rar> [...]\n"; return 1; }
+        if (dll.empty()) dll = LoadSevenZipDll();
+        if (!fs::is_regular_file(dll)) throw std::runtime_error("7z.dll not found");
+        bit7z::Bit7zLibrary library(fs::absolute(dll).wstring());
+        size_t failed = 0;
+        size_t current = 0;
+        for (const auto& input : inputs) {
+            std::cout << '[' << ++current << '/' << inputs.size() << "] Extracting: "
+                << Text(input) << std::endl;
+            try { ArcToDir(input, library); }
+            catch (const std::exception& error) { std::cerr << Text(input) << ": " << error.what() << '\n'; ++failed; }
+        }
+        std::cout << "Processed: " << inputs.size() << ", failed: " << failed << '\n';
         return failed ? 1 : 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

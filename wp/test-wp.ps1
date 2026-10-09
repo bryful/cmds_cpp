@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path
 $root = Join-Path $PSScriptRoot ('wp-test-' + [guid]::NewGuid())
 New-Item -ItemType Directory $root | Out-Null
-$sample = Join-Path $PSScriptRoot '..\libwebp-1.6.0-windows-x64\test.webp'
+$sample = Join-Path $PSScriptRoot '..\packages\libwebp-1.6.0-windows-x64\test.webp'
 function Assert($condition, $message) { if (!$condition) { throw $message } }
 function Case($name) { $p = Join-Path $root $name; New-Item -ItemType Directory $p | Out-Null; return $p }
 try {
@@ -20,7 +20,7 @@ try {
 
     $decodeInput = Join-Path $p 'decode.jpeg'
     Copy-Item -LiteralPath $jpeg -Destination $decodeInput
-    & (Join-Path $PSScriptRoot '..\libjpeg-turbo64\bin\djpeg.exe') -bmp -outfile (Join-Path $p 'decoded.bmp') $decodeInput
+    & (Join-Path $PSScriptRoot '..\packages\libjpeg-turbo64\bin\djpeg.exe') -bmp -outfile (Join-Path $p 'decoded.bmp') $decodeInput
     Assert ($LASTEXITCODE -eq 0) 'JPEG decoding failed'
 
     $p = Case 'existing'
