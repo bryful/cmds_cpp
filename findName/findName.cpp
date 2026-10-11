@@ -22,6 +22,10 @@ public:
         return *this;
     }
     explicit operator bool() const { return good_; }
+    void writeBom() {
+        DWORD mode = 0;
+        if (!GetConsoleMode(handle_, &mode)) write(L"\uFEFF");
+    }
 
 private:
     void write(const std::wstring& text) {
@@ -69,9 +73,10 @@ static Output errors(STD_ERROR_HANDLE);
 
 static void usage()
 {
-    output << L"Usage: findName <path> <text> [text...] [-e <extension>]\n"
+    output << L"Usage: findName <path> <text> [text...] [-e <extension>] [-bom]\n"
                   L"Recursively find files whose names contain all search texts (case-insensitive).\n"
                   L"Default extension: .zip. Both txt and .txt are accepted.\n"
+                  L"-bom: prepend a UTF-8 BOM to redirected stdout (files/pipes).\n"
                   L"Use -- before search texts beginning with '-'.\n"
                   L"Example: findName \"D:\\Archive\" sample backup -e zip\n";
 }
@@ -98,10 +103,13 @@ int wmain(int argc, wchar_t* argv[])
     std::vector<std::wstring> texts;
     bool options = true;
     bool extensionSpecified = false;
+    bool bom = false;
     for (int i = 2; i < argc; ++i) {
         const std::wstring arg = argv[i];
         if (options && arg == L"--") {
             options = false;
+        } else if (options && arg == L"-bom") {
+            bom = true;
         } else if (options && arg == L"-e") {
             if (extensionSpecified || i + 1 == argc) {
                 errors << L"Error: -e requires one extension and may only be specified once.\n";
@@ -138,6 +146,10 @@ int wmain(int argc, wchar_t* argv[])
         if (ec || !fs::is_directory(root, ec) || ec) {
             errors << L"Error: path is not an accessible directory: " << argv[1] << L'\n';
             return 1;
+        }
+        if (bom) {
+            output.writeBom();
+            if (!output) return 1;
         }
         std::vector<fs::path> pending{ root };
         bool failed = false;

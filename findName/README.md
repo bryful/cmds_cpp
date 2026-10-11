@@ -3,7 +3,7 @@
 指定ディレクトリ以下を再帰的に探索し、ファイル名に指定したすべての検索文字列を含むファイルのフルパスを1行ずつ表示します。
 
 ```text
-findName <探索パス> <検索文字列> [検索文字列...] [-e <拡張子>]
+findName <探索パス> <検索文字列> [検索文字列...] [-e <拡張子>] [-bom]
 ```
 
 ```powershell
@@ -22,6 +22,7 @@ findName --help
 - ディレクトリのシンボリックリンクやジャンクションはたどりません。
 - 読み取りに失敗した場合は標準エラーに通知し、探索可能な残りのディレクトリを続けます。
 - 標準出力・標準エラーは、コンソールではUnicode、ファイルやパイプにはUTF-8（BOMなし）で直接書き込みます。Windows PowerShell 5.1の `>` はシェル側でUTF-16に再変換されます。UTF-8で保存する場合は `findName ... | Out-File -Encoding utf8 result.txt` を使用してください。
+- `-bom` を指定すると、ファイル・パイプへの標準出力の先頭にUTF-8 BOM（`EF BB BF`）を1回付けます。省略時はBOMなしです。一致なしでもBOMの3バイトを出力します。コンソール表示と標準エラーにはBOMを付けません。`-e` と併用でき、オプションは `--` より前に指定します。
 - 終了コード: `0` 正常終了（一致なしを含む）、`1` 探索・出力エラー、`2` 引数エラー。
 
 ## AND検索の例
@@ -40,13 +41,19 @@ findName "D:\Archive" sample backup
 findName "D:\Archive" sample backup > result.txt
 ```
 
+BOM付きUTF-8で保存する場合（コマンドプロンプト）:
+
+```cmd
+findName "D:\Archive" sample backup -bom > result.txt
+```
+
 Windows PowerShell 5.1でUTF-8を指定して保存する場合:
 
 ```powershell
 findName "D:\Archive" sample backup | Out-File -Encoding utf8 result.txt
 ```
 
-Windows PowerShell 5.1の `Out-File -Encoding utf8` はBOM付きUTF-8になります。一致するファイルがない場合、検索結果は空です。エラーは標準エラーに出力します。
+Windows PowerShell 5.1の `Out-File -Encoding utf8` はBOM付きUTF-8になります。一致するファイルがない場合、検索結果は空です（`-bom` 指定時はBOMのみ）。エラーは標準エラーに出力します。
 
 ## ビルド
 
@@ -73,6 +80,6 @@ msbuild cmds_cpp.slnx /t:findName /p:Configuration=Release /p:Platform=x64 /p:Fi
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File findName\test-findName.ps1 -Exe ".\x64\Release\findName.exe"
 ```
 
-再帰探索、AND検索、重複抑制、既定・指定拡張子、日本語、英字とアクセント付き文字の大小文字比較、親ディレクトリ名の除外、引数エラー、ヘルプ、cmd.exeとPowerShellのファイルリダイレクト、標準エラーのリダイレクトを検証します。テストデータは `findName/out/` 内に作成します。
+再帰探索、AND検索、重複抑制、既定・指定拡張子、日本語、英字とアクセント付き文字の大小文字比較、親ディレクトリ名の除外、引数エラー、ヘルプ、cmd.exeとPowerShellのファイルリダイレクト、標準エラーのリダイレクト、BOMの先頭バイト・単一出力・一致なし・拡張子指定との併用を検証します。テストデータは `findName/out/` 内に作成します。
 
-2026-10-11にRelease/x64をビルドし、全18項目の動作確認に成功しています。
+2026-10-11にRelease/x64をビルドし、全21項目の動作確認に成功しています。

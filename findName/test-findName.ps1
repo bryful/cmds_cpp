@@ -61,4 +61,26 @@ if ($LASTEXITCODE -ne 0 -or (Get-Item $redirected).Length -eq 0) { throw 'PowerS
 $lines = @(Get-Content $redirected)
 if (@(Compare-Object ($lines | Sort-Object) ($expected | Sort-Object)).Count) { throw 'PowerShell redirected paths differ' }
 $count++
+# Validate raw BOM bytes, including no matches and combination with -e/AND.
+foreach ($case in @(
+    @{ Args = 'sample -bom'; Paths = $expected },
+    @{ Args = '-bom sample backup -e txt'; Paths = @((Join-Path $root 'nested\SampleBackup.TXT')) },
+    @{ Args = 'absent -bom'; Paths = @() }
+)) {
+    $command = '""' + $exePath + '" "' + $root + '" ' + $case.Args + ' > "' + $redirected + '""'
+    & $env:ComSpec /d /s /c $command
+    if ($LASTEXITCODE -ne 0) { throw 'BOM search failed' }
+    $bytes = [IO.File]::ReadAllBytes($redirected)
+    if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+        throw 'Missing UTF-8 BOM'
+    }
+    $body = $utf8.GetString($bytes, 3, $bytes.Length - 3)
+    if ($body.Contains([char]0xFEFF)) { throw 'Duplicate BOM' }
+    $lines = @($body -split '\r?\n' | Where-Object { $_ })
+    if ($lines.Count -ne $case.Paths.Count) { throw 'Unexpected BOM output line count' }
+    if ($lines.Count -and @(Compare-Object ($lines | Sort-Object) ($case.Paths | Sort-Object)).Count) {
+        throw 'Unexpected BOM output paths'
+    }
+    $count++
+}
 Write-Host "$count checks passed. Fixtures: $root"
