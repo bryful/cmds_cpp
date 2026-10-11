@@ -17,7 +17,9 @@ inline std::wstring NormalizePathUnicode(const std::wstring& path) {
     int len = NormalizeString(NormalizationC, path.c_str(), (int)path.length(), NULL, 0);
     if (len <= 0) return path;
     std::wstring normalized(len, 0);
-    NormalizeString(NormalizationC, path.c_str(), (int)path.length(), &normalized[0], len);
+    const int written = NormalizeString(NormalizationC, path.c_str(), (int)path.length(), normalized.data(), len);
+    if (written <= 0) return path;
+    normalized.resize(static_cast<size_t>(written));
     return normalized;
 }
 

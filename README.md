@@ -1,8 +1,8 @@
 # Windowsコマンドツール集
 
-ファイル整理、リネーム、アーカイブ変換、画像変換のためのC++製コマンドラインツールです。ソリューションは`cmds_cpp.slnx`です。
+ファイル検索、ファイル整理、リネーム、アーカイブ変換、画像変換のためのC++製コマンドラインツールです。ソリューションは`cmds_cpp.slnx`です。
 
-全9プロジェクトの現行仕様・配置を記載しています（2026-10-09更新）。コマンド例のビルド・テストはリポジトリのルートで実行してください。各READMEの過去の速度比較・検証記録は、その記載環境での結果です。
+全10プロジェクトの現行仕様・配置を記載しています（2026-10-11更新）。コマンド例のビルド・テストはリポジトリのルートで実行してください。各READMEの過去の速度比較・検証記録は、その記載環境での結果です。
 
 ## プロジェクト一覧
 
@@ -11,6 +11,7 @@
 | a2d | ZIP/RARをフォルダへ展開 | bit7z、7z.dll |
 | d2z | フォルダの中身をZIPへ圧縮 | bit7z、7z.dll |
 | r2z | RARを展開してZIPへ再圧縮 | bit7z、7z.dll |
+| findName | ファイル名の部分一致による再帰検索（AND検索） | なし |
 | fs | 名前の角括弧を使ったファイル振り分け・移動 | なし |
 | rh | 削除語・全角半角変換による名前の整理 | Windows Unicode正規化API |
 | rb | `[aaa(bbb)]`を`[bbb]`へ変更 | Windows Unicode正規化API |
@@ -71,6 +72,27 @@ bit7zを通じて`7z.dll`を直接利用し、RAR4/RAR5をZIPへ変換します�
 DLLは`--dll`または実行ファイルの隣の`r2z.pref`で指定できます。指定がなければ実行ファイルの隣、次に`C:\Program Files\7-Zip\7z.dll`を参照します。旧`.pref`の`7z.exe`は同じ場所の`7z.dll`へ読み替えます。
 
 詳細・速度比較: [r2z/README.md](r2z/README.md)
+
+## ファイル検索
+
+### findName — ファイル名の再帰検索
+
+```powershell
+findName.exe "D:\Archive" sample
+findName.exe "D:\Archive" sample backup
+findName.exe "D:\Documents" sample backup -e txt
+findName.exe "D:\Archive" sample backup > result.txt
+```
+
+指定パス以下を再帰的に探索し、ファイル名に指定したすべての検索文字列を含むファイルのフルパスを1行ずつ表示します（AND検索）。大文字・小文字は区別しません。親ディレクトリ名は検索対象外です。
+
+- 拡張子は既定で `.zip`。`-e txt` または `-e .txt` で変更できます。
+- 日本語・空白を含むパスに対応します。空白を含む引数は引用符で囲みます。
+- ファイルやパイプへの出力はUTF-8です。Windows PowerShell 5.1のリダイレクトではシェル側で文字コードが変わります。
+- ディレクトリのシンボリックリンク・ジャンクションはたどりません。
+- 終了コードは正常終了（一致なしを含む）が0、探索・出力エラーが1、引数エラーが2です。
+
+詳細・保存例・ビルド手順: [findName/README.md](findName/README.md)
 
 ## ファイル整理・リネーム
 
@@ -220,13 +242,13 @@ msbuild rh\rh.vcxproj /p:Configuration=Release /p:Platform=x64
 | `packages/libwebp-1.6.0-windows-x64`・`packages/libjpeg-turbo64` | wpのビルド・検証に使う同梱ライブラリ |
 | `.vs/`・`*.vcxproj.user` | Visual Studioのローカル設定。Git対象外 |
 
-中間ファイルは`out/obj/<Platform>/<Configuration>`へ統一しています。a2d・d2z・r2zのCMake生成物は`out/build/<Platform>`に置きます。`out/`を削除した後の初回ビルドでは依存ライブラリを再取得するため、ネット接続が必要です。実行ファイルの隣の`.lst`・`.pref`は利用者の設定なので、出力フォルダの掃除時には残してください。
+findName以外の中間ファイルは`out/obj/<Platform>/<Configuration>`へ配置しています。findNameはVisual Studioの既定値を使用し、Release/x64では中間ファイルを`findName/x64/Release/`、ソリューションからビルドした実行ファイルを`x64/Release/findName.exe`へ出力します。a2d・d2z・r2zのCMake生成物は`out/build/<Platform>`に置きます。`out/`を削除した後の初回ビルドでは依存ライブラリを再取得するため、ネット接続が必要です。実行ファイルの隣の`.lst`・`.pref`は利用者の設定なので、出力フォルダの掃除時には残してください。
 
 a2d・d2z・r2zの`build.ps1`を直接実行し、`-OutputDirectory`を省略した場合の実行ファイルは、各プロジェクトの`out/build/<Platform>/<Configuration>`にあります。Visual Studio経由では共通出力先にもコピーします。各ツールのビルドで7z.dllを自動取得・配置する処理はありません。
 
 ## 回帰テストと詳細資料
 
-a2d・d2z・fs・r2z・rh・wpには、テスト用のコピーや生成ファイルを使うPowerShellスクリプトがあります。`-Exe`にビルド済み実行ファイルのパスを指定します。
+a2d・d2z・findName・fs・r2z・rb・rh・wpには、テスト用のコピーや生成ファイルを使うPowerShellスクリプトがあります。`-Exe`にビルド済み実行ファイルのパスを指定します。
 
 ```powershell
 powershell -File rh\test-rh.ps1 -Exe "C:\build\rh.exe"
@@ -236,15 +258,16 @@ powershell -File rh\test-rh.ps1 -Exe "C:\build\rh.exe"
 |---|---|---|
 | a2d | [README](a2d/README.md) | [test-a2d.ps1](a2d/test-a2d.ps1) |
 | d2z | [README](d2z/README.md) | [test-d2z.ps1](d2z/test-d2z.ps1) |
+| findName | [README](findName/README.md) | [test-findName.ps1](findName/test-findName.ps1) |
 | fs | [README](fs/README.md) | [test-fs.ps1](fs/test-fs.ps1) |
 | r2z | [README](r2z/README.md) | [test-r2z.ps1](r2z/test-r2z.ps1) |
 | rh | [README](rh/README.md) | [test-rh.ps1](rh/test-rh.ps1) |
 | wp | [README](wp/README.md) | [test-wp.ps1](wp/test-wp.ps1) |
-| rb | [README](rb/README.md) | 専用スクリプトなし |
+| rb | [README](rb/README.md) | [test-rb.ps1](rb/test-rb.ps1) |
 | renNFD | [README](renNFD/README.md) | 専用スクリプトなし |
 | ThumFromZip | [README](ThumFromZip/README.md) | 手動検証記録あり。専用スクリプトなし |
 
-これら6プロジェクトの修正・検証結果を、ほかのプロジェクトにそのまま適用できるわけではありません。ファイルの移動・リネーム・削除を行うツールは、まずコピーしたデータで動作を確認してください。
+これら8プロジェクトの修正・検証結果を、ほかのプロジェクトにそのまま適用できるわけではありません。ファイルの移動・リネーム・削除を行うツールは、まずコピーしたデータで動作を確認してください。
 
 ## ライセンス・作者
 
