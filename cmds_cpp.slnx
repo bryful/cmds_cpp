@@ -14,4 +14,5 @@
   <Project Path="ThumFromZip/ThumFromZip.vcxproj" Id="f5fa30a9-39e5-423f-956f-819366a76d0d" />
   <Project Path="wp/wp.vcxproj" Id="1ebee2c9-af2d-49a7-b495-47e8ae7cfdfa" />
   <Project Path="findName/findName.vcxproj" Id="78eb17b5-779a-4813-9e60-82cb56d17931" />
+  <Project Path="png2jpeg/png2jpeg.vcxproj" Id="409e5aa2-70f4-4adb-83b5-54aac960fe44" />
 </Solution>

@@ -57,7 +57,7 @@ Visual StudioのC++デスクトップ開発、Windows SDK、CMake 3.24以上が�
 powershell -File r2z\build.ps1 -Configuration Release -Platform x64
 ```
 
-出力は`r2z\out\build\x64\Release\r2z.exe`です。`r2z.vcxproj`は同じスクリプトを呼び出すMakefileプロジェクトで、ソリューションからもビルドできます。依存ライブラリを手動でリンクする必要はありません。実行時の`7z.dll`は別途配置してください。
+出力は`x64\Release\r2z.exe`です。`r2z.vcxproj`は同じスクリプトを呼び出すMakefileプロジェクトで、ソリューションからもビルドできます。依存ライブラリを手動でリンクする必要はありません。実行時の`7z.dll`は別途配置してください。
 
 初期検証ではPDB生成時のMSPDB関連エラーを避けるため`-DisablePdb`を使用した記録があります。通常のビルド手順では不要です。この指定はCMakeキャッシュに保存されるため、既存キャッシュを再利用する場合は設定を確認してください。
 
@@ -72,7 +72,7 @@ powershell -File r2z\build.ps1 -Configuration Release -Platform x64
 ## 検証・速度比較
 
 ```powershell
-powershell -File r2z\test-r2z.ps1 -Exe r2z\out\build\x64\Release\r2z.exe
+powershell -File r2z\test-r2z.ps1 -Exe x64\Release\r2z.exe
 ```
 
 生成した真正な格納RAR4で10ケースを検証しています。内容一致・元RAR保持、単一ルート解除、再帰的SCR除外、既存ZIP保護、CRC不一致、不正入力を含む一括処理、全項目除外、親参照、重複名、圧縮モード、ロックされた入力を確認します（複数の確認を含むケースがあります）。別途、libarchiveの圧縮RAR4・RAR5・ソリッドRAR5の3フィクスチャで変換前後の全ファイルのSHA-256一致を確認しました。
@@ -93,8 +93,8 @@ powershell -File r2z\test-r2z.ps1 -Exe r2z\out\build\x64\Release\r2z.exe
 - 実データ検証用フィクスチャ: [libarchive](https://github.com/libarchive/libarchive/tree/master/libarchive/test)（取得したフィクスチャは本リポジトリに同梱していません）。
 ## ソリューション内の配置（2026-10-09）
 
-ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`out/obj/<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
-`build.ps1`を直接実行して`-OutputDirectory`を省略した場合は、プロジェクト内の`out/build/<Platform>/<Configuration>`に実行ファイルができます。Visual Studio経由では同じスクリプトの結果を共通出力先へコピーします。CMakeキャッシュと取得した依存ソースは`out/build/<Platform>`に置きます。`out/`を削除した後の初回ビルドには再びネット接続が必要です。実行時の7z.dllは自動取得・コピーされません。
+ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
+`build.ps1`を直接実行した場合も、既定の実行ファイル出力先はリポジトリ直下の`<Platform>/<Configuration>`です。CMakeキャッシュと依存ソースは中間ディレクトリ内の`cmake/`に置きます。削除後の初回ビルドには再びネット接続が必要です。既存の`out/`内のキャッシュは使用しません。実行時の7z.dllは自動取得・コピーされません。
 
 過去の検証・速度比較は記載した環境での記録です。今回のREADME更新に伴う再計測は行っていません。
 

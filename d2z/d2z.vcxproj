@@ -71,16 +71,15 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <IntDir>$(MSBuildThisFileDirectory)out\obj\$(Platform)\$(Configuration)\</IntDir>
-    <OutDir>$(MSBuildThisFileDirectory)..\$(Platform)\$(Configuration)\</OutDir>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
   <PropertyGroup>
-    <NMakeBuildCommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)build.ps1" -Configuration "$(Configuration)" -Platform "$(Platform)" -OutputDirectory "$(OutDir)."</NMakeBuildCommandLine>
-    <NMakeCleanCommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)build.ps1" -Configuration "$(Configuration)" -Platform "$(Platform)" -Clean</NMakeCleanCommandLine>
+    <NMakeBuildCommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)build.ps1" -Configuration "$(Configuration)" -Platform "$(Platform)" -IntermediateDirectory "$(ProjectDir)$(IntDir)." -OutputDirectory "$(OutDir)."</NMakeBuildCommandLine>
+    <NMakeCleanCommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)build.ps1" -Configuration "$(Configuration)" -Platform "$(Platform)" -IntermediateDirectory "$(ProjectDir)$(IntDir)." -Clean</NMakeCleanCommandLine>
     <NMakeReBuildCommandLine>$(NMakeCleanCommandLine) &amp;&amp; $(NMakeBuildCommandLine)</NMakeReBuildCommandLine>
     <NMakeOutput>$(OutDir)d2z.exe</NMakeOutput>
     <NMakePreprocessorDefinitions>BIT7Z_USE_NATIVE_STRING;NOMINMAX;WIN32_LEAN_AND_MEAN;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
-    <NMakeIncludeSearchPath>$(ProjectDir)out\build\$(Platform)\_deps\bit7z-src\include;$(ProjectDir)out\deps\bit7z-4.1.0\include;$(NMakeIncludeSearchPath)</NMakeIncludeSearchPath>
+    <NMakeIncludeSearchPath>$(ProjectDir)$(IntDir)cmake\_deps\bit7z-src\include;$(NMakeIncludeSearchPath)</NMakeIncludeSearchPath>
     <NMakeAdditionalOptions>/std:c++20 $(NMakeAdditionalOptions)</NMakeAdditionalOptions>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

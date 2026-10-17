@@ -24,9 +24,9 @@ renNFD.exe "C:\Files"
 リポジトリのルートから、Visual Studioのx64 Native Tools環境で実行します。MSVC v145、Windows SDK、Unicode正規化APIを使用します。
 
 ```powershell
-msbuild renNFD\renNFD.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:renNFD /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 ```
 
-出力は`x64/Release/renNFD.exe`、中間ファイルは`renNFD/out/obj/x64/Release`です。Debugは`Debug`へ読み替えます。出力・中間ファイル・個人設定はGit対象外です。
+出力は`x64/Release/renNFD.exe`、中間ファイルは`renNFD/x64/Release`です。Debugは`Debug`へ読み替えます。出力・中間ファイル・個人設定はGit対象外です。
 
 [ソリューション全体の説明](../README.md)

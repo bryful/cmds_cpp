@@ -39,10 +39,10 @@ ThumFromZip.exe --help
 リポジトリのルートから、VS2026のx64 Native Tools環境で実行します。MSVC v145とWindows SDKが必要です。SDKヘッダーは`third_party/7zip`に同梱しています。ビルド時のネット接続は不要で、実行時のDLLは別途必要です。
 
 ```powershell
-msbuild ThumFromZip\ThumFromZip.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:ThumFromZip /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 ```
 
-出力は`x64/Release/ThumFromZip.exe`、中間ファイルは`ThumFromZip/out/obj/x64/Release`です。Debugは`Debug`へ読み替えます。Releaseは`/MT`、Debugは`/MTd`を使用します。出力・中間ファイル・個人設定はGit対象外です。
+出力は`x64/Release/ThumFromZip.exe`、中間ファイルは`ThumFromZip/x64/Release`です。Debugは`Debug`へ読み替えます。Releaseは`/MT`、Debugは`/MTd`を使用します。出力・中間ファイル・個人設定はGit対象外です。
 
 ## 検証記録（2026-10-09）
 

@@ -20,10 +20,10 @@ rhの衝突保護・リパースポイント除外・失敗集計の修正は未
 リポジトリのルートから、Visual Studioのx64 Native Tools環境で実行します。x64はMSVC v145、Win32はv143の設定です。Windows SDKとUnicode正規化APIを使用します。
 
 ```powershell
-msbuild rb\rb.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:rb /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 ```
 
-出力は`x64/Release/rb.exe`、中間ファイルは`rb/out/obj/x64/Release`です。Debugは`Debug`へ読み替えます。出力・中間ファイル・個人設定はGit対象外です。実行時に作成される変更ログは利用者のデータです。
+出力は`x64/Release/rb.exe`、中間ファイルは`rb/x64/Release`です。Debugは`Debug`へ読み替えます。出力・中間ファイル・個人設定はGit対象外です。実行時に作成される変更ログは利用者のデータです。
 
 ## NUL混入の修正・検証（2026-10-10）
 

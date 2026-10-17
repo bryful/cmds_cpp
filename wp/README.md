@@ -17,7 +17,7 @@ wp.exe C:\images
 ビルドはVisual Studioのx64 Native Tools環境で、同梱のx64静的ライブラリを使用してください。古いNuGet画像ライブラリへの依存はありません。Debugも同梱ライブラリに合わせてrelease static CRTを使用します。
 
 ```
-msbuild wp\wp.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:wp /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 powershell -File wp\test-wp.ps1 -Exe x64\Release\wp.exe
 ```
 
@@ -41,7 +41,7 @@ powershell -File wp\test-wp.ps1 -Exe x64\Release\wp.exe
 libwebpはルートの`packages/libwebp-1.6.0-windows-x64`、libjpeg-turboは`packages/libjpeg-turbo64`を参照します。ビルド用ヘッダ・静的ライブラリと検証用ツールを含みます。これら2フォルダはGitに含め、NuGetの旧パッケージキャッシュは使用しません。
 ## ソリューション内の配置（2026-10-09）
 
-ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`out/obj/<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
+ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
 
 過去の検証・速度比較は記載した環境での記録です。今回のREADME更新に伴う再計測は行っていません。
 

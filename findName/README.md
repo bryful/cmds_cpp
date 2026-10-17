@@ -65,13 +65,13 @@ Visual Studioで `cmds_cpp.slnx` を開き、`findName` をビルドします。
 - プロジェクト単体でビルドし、`SolutionDir` が未指定の場合は、実行ファイルもプロジェクト配下に出力されます。
 
 ```powershell
-msbuild cmds_cpp.slnx /t:findName /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:findName /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 ```
 
 環境内の `MSPDB140.DLL` 不整合でリンクに失敗する場合は、次の設定でデバッグ情報とプログラム全体の最適化を無効にできます。
 
 ```powershell
-msbuild cmds_cpp.slnx /t:findName /p:Configuration=Release /p:Platform=x64 /p:FindNameDisablePdb=true /p:WholeProgramOptimization=false
+msbuild cmds_cpp.slnx /t:findName /p:Configuration=Release /p:Platform=x64 /p:FindNameDisablePdb=true /p:WholeProgramOptimization=false /p:PreferredToolArchitecture=x64
 ```
 
 ## 動作確認

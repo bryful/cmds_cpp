@@ -44,7 +44,7 @@ UTF-8（BOMあり・なし）の1行につき1つの削除語を指定します�
 Visual Studioのx64 Native Tools環境で実行します。Unicode正規化に必要な`Normaliz.lib`をプロジェクトに明示しました。
 
 ```
-msbuild rh\rh.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:rh /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 powershell -File rh\test-rh.ps1 -Exe x64\Release\rh.exe
 ```
 
@@ -72,7 +72,7 @@ MSVC 14.51のx64直接ビルド（`/O2 /MT /W4 /std:c++20 /utf-8`）と、PDB生
 256件の衝突ケースでは約50倍、衝突なしでは約1.65倍の速度でした。人工的に衝突を集中させたデータであり、実際のファイル名・ストレージ・削除語数によって効果は変わります。並列リネームは導入していません。
 ## ソリューション内の配置（2026-10-09）
 
-ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`out/obj/<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
+ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
 
 実行ファイルの隣の`rh.lst`は利用者の設定です。出力フォルダの整理時も残してください。
 

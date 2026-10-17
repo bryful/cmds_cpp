@@ -28,14 +28,14 @@ fs.exe -r "C:\Downloads"
 VS2026でビルドできます。x64はv145、Win32は既存のv143設定です。7-Zipなどの外部ツールは不要です。
 
 ```powershell
-msbuild cmds_cpp.slnx /t:fs:Rebuild /p:Configuration=Release /p:Platform=x64
+msbuild cmds_cpp.slnx /t:fs:Rebuild /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
 powershell -File fs\test-fs.ps1 -Exe x64\Release\fs.exe
 ```
 
 回帰テストは専用フォルダ内の生成データだけを操作します。正常な日本語名の振り分け、不正な振り分け先、通常・逆移動の衝突、移動先がファイル、逆移動・通常移動先・入力ルートのジャンクション、不正入力、逆移動後の空フォルダ削除、下位フォルダ・既存空フォルダの保持、ロックされた入力の12ケースを確認します。ジャンクションを作成できる環境が必要です。テスト終了時はリンク自体を先に削除してから専用フォルダを片付けます。
 ## ソリューション内の配置（2026-10-09）
 
-ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`out/obj/<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
+ここに記載したビルド・テストコマンドは、リポジトリのルートで実行します。Visual Studio経由のx64ビルドは、ルートの`x64/Release`または`x64/Debug`へ実行ファイルを出力します。中間ファイルは各プロジェクトの`<Platform>/<Configuration>`に置きます。生成物と`*.vcxproj.user`などの個人設定はGit対象外です。
 
 過去の検証・速度比較は記載した環境での記録です。今回のREADME更新に伴う再計測は行っていません。
 
