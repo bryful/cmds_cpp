@@ -14,7 +14,7 @@ wp.exe C:\images
 - 個別の変換失敗は報告して後続を処理し、1件でも失敗すると終了コード1を返します。
 - `imgi_1_1.webp`は`img001.jpeg`へ、それ以外は拡張子を`.jpeg`へ変更します。
 
-ビルドはVisual Studioのx64 Native Tools環境で、同梱のx64静的ライブラリを使用してください。古いNuGet画像ライブラリへの依存はありません。Debugも同梱ライブラリに合わせてrelease static CRTを使用します。
+ビルドはVisual Studioのx64 Native Tools環境で、同梱のx64静的ライブラリを使用してください。古いNuGet画像ライブラリへの依存はありません。Debugも同梱ライブラリに合わせてrelease static CRT（`/MT`）と `NDEBUG` を使用します。`_DEBUG` は定義しません。デバッグ情報は生成しますが、Debug CRT・STLのデバッグ検査は使用しません。
 
 ```
 msbuild cmds_cpp.slnx /t:wp /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64

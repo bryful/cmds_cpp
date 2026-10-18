@@ -103,12 +103,12 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <AdditionalIncludeDirectories>..\packages\libjpeg-turbo64\include;..\packages\libwebp-1.6.0-windows-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <!-- Match the bundled static codecs, which use the release static CRT. -->
+      <!-- 同梱コーデックの Release CRT に合わせ、NDEBUG と /MT を組み合わせる。 -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>

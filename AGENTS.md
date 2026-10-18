@@ -267,7 +267,7 @@ build:
     preferred_tool_architecture: "x64"
     msbuild_argument: "/p:PreferredToolArchitecture=x64"
     project_setting: "<PreferredToolArchitecture>x64</PreferredToolArchitecture>"
-    project_setting_location: "cdaf.vcxproj の UserMacros の直後にある PropertyGroup 内"
+    project_setting_location: "各 .vcxproj の UserMacros の直後にある PropertyGroup 内"
     rules:
       - "MSBuild でビルドするときは /p:PreferredToolArchitecture=x64 を指定する。"
       - "プロジェクトに設定を永続化する場合は、UserMacros の直後に PropertyGroup を追加して PreferredToolArchitecture を x64 にする。"
@@ -345,3 +345,8 @@ restrictions:
   - "Do not introduce unnecessary frameworks."
   - "Do not replace working code merely for stylistic reasons."
 ```
+
+## ソリューション運用
+
+- 開発・ビルドには cmds_cpp.slnx を使用する。旧 dircount.slnx は使用しない。
+- dircount・dirsize・dirFind・findGFile はこのリポジトリ内のプロジェクトとして管理し、旧 dircount リポジトリへの参照を追加しない。
