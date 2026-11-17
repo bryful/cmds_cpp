@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include "SevenZipExtract.h"
+#include <wincodec.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 
@@ -13,6 +15,113 @@
 #include <system_error>
 
 namespace fs = std::filesystem;
+
+#pragma comment(lib, "windowscodecs.lib")
+
+namespace
+{
+constexpr UINT RESIZE_HEIGHT = 480;
+constexpr float JPEG_QUALITY = 0.50f;
+
+struct ComScope
+{
+    ComScope()
+    {
+        const HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        if (FAILED(result)) sevenzip::Check(result, "Cannot initialize COM");
+    }
+
+    ~ComScope() { CoUninitialize(); }
+};
+
+fs::path makeTemporaryPath(const fs::path& directory)
+{
+    GUID id{};
+    sevenzip::Check(CoCreateGuid(&id), "Cannot create temporary filename");
+    wchar_t suffix[40]{};
+    if (!StringFromGUID2(id, suffix, 40))
+        throw std::runtime_error("Cannot format temporary filename");
+    return directory / (std::wstring(L".ThumFromZip-") + suffix + L".tmp");
+}
+
+struct TemporaryFile
+{
+    const fs::path& path;
+
+    ~TemporaryFile() { DeleteFileW(path.c_str()); }
+};
+
+void resizeToJpeg(const fs::path& input, const fs::path& output)
+{
+    using Microsoft::WRL::ComPtr;
+    using sevenzip::Check;
+
+    ComScope com;
+    ComPtr<IWICImagingFactory> factory;
+    Check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(factory.GetAddressOf())), "Cannot create WIC factory");
+
+    ComPtr<IWICBitmapDecoder> decoder;
+    Check(factory->CreateDecoderFromFilename(input.c_str(), nullptr, GENERIC_READ,
+        WICDecodeMetadataCacheOnDemand, &decoder), "Cannot decode image");
+    ComPtr<IWICBitmapFrameDecode> source;
+    Check(decoder->GetFrame(0, &source), "Cannot read image frame");
+
+    UINT width = 0;
+    UINT height = 0;
+    Check(source->GetSize(&width, &height), "Cannot read image dimensions");
+    if (width == 0 || height == 0)
+        throw std::runtime_error("Invalid image dimensions");
+
+    ComPtr<IWICBitmapScaler> scaler;
+    IWICBitmapSource* bitmap = source.Get();
+    if (height > RESIZE_HEIGHT)
+    {
+        width = std::max(1u, static_cast<UINT>(
+            (static_cast<UINT64>(width) * RESIZE_HEIGHT + height / 2) / height));
+        height = RESIZE_HEIGHT;
+        Check(factory->CreateBitmapScaler(&scaler), "Cannot create image scaler");
+        Check(scaler->Initialize(bitmap, width, height, WICBitmapInterpolationModeFant),
+            "Cannot resize image");
+        bitmap = scaler.Get();
+    }
+
+    ComPtr<IWICFormatConverter> converter;
+    Check(factory->CreateFormatConverter(&converter), "Cannot create image converter");
+    Check(converter->Initialize(bitmap, GUID_WICPixelFormat24bppBGR,
+        WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom),
+        "Cannot convert image pixels");
+
+    ComPtr<IWICStream> stream;
+    Check(factory->CreateStream(&stream), "Cannot create JPEG stream");
+    Check(stream->InitializeFromFilename(output.c_str(), GENERIC_WRITE), "Cannot open JPEG output");
+    ComPtr<IWICBitmapEncoder> encoder;
+    Check(factory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, &encoder),
+        "Cannot create JPEG encoder");
+    Check(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache), "Cannot initialize JPEG encoder");
+
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IPropertyBag2> properties;
+    Check(encoder->CreateNewFrame(&frame, &properties), "Cannot create JPEG frame");
+    wchar_t qualityName[] = L"ImageQuality";
+    PROPBAG2 option{};
+    option.pstrName = qualityName;
+    VARIANT quality{};
+    quality.vt = VT_R4;
+    quality.fltVal = JPEG_QUALITY;
+    Check(properties->Write(1, &option, &quality), "Cannot set JPEG quality");
+    Check(frame->Initialize(properties.Get()), "Cannot initialize JPEG frame");
+    Check(frame->SetSize(width, height), "Cannot set JPEG dimensions");
+    WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+    Check(frame->SetPixelFormat(&format), "Cannot set JPEG pixel format");
+    if (format != GUID_WICPixelFormat24bppBGR)
+        throw std::runtime_error("Unsupported JPEG pixel format");
+    Check(frame->WriteSource(converter.Get(), nullptr), "Cannot write JPEG pixels");
+    Check(frame->Commit(), "Cannot commit JPEG frame");
+    Check(encoder->Commit(), "Cannot commit JPEG image");
+    Check(stream->Commit(STGC_DEFAULT), "Cannot commit JPEG stream");
+}
+}
 
 // 処理結果
 enum class Result {
@@ -105,7 +214,7 @@ std::string GetImageExtension(const std::string& name)
 	return "";
 }
 
-Result ExtractFirstImage(const fs::path& zipPath, bool overwrite)
+Result ExtractFirstImage(const fs::path& zipPath, bool overwrite, bool resize)
 {
     try {
         sevenzip::Archive archive(zipPath, {0x01});
@@ -148,16 +257,10 @@ Result ExtractFirstImage(const fs::path& zipPath, bool overwrite)
             return Result::NoImage;
         }
         fs::path outputPath = zipPath;
-        outputPath.replace_extension(selectedExtension);
+        outputPath.replace_extension(resize ? ".jpeg" : selectedExtension);
         PrintConsole(L"  SELECT: " + selectedDisplay + L"\n");
-        fs::path writePath = outputPath;
-        if (overwrite) {
-            GUID id{};
-            sevenzip::Check(CoCreateGuid(&id), "Cannot create temporary filename");
-            wchar_t suffix[40]{};
-            if (!StringFromGUID2(id, suffix, 40)) throw std::runtime_error("Cannot format temporary filename");
-            writePath += std::wstring(L".") + suffix + L".tmp";
-        }
+        const fs::path writePath = overwrite || resize
+            ? makeTemporaryPath(outputPath.parent_path()) : outputPath;
         HANDLE output = CreateFileW(writePath.c_str(), GENERIC_WRITE, 0, nullptr,
             CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output == INVALID_HANDLE_VALUE) {
@@ -184,8 +287,29 @@ Result ExtractFirstImage(const fs::path& zipPath, bool overwrite)
             PrintConsole(L"  ERROR: 展開失敗（破損・暗号化など）\n");
             return Result::Error;
         }
+        if (resize)
+        {
+            const TemporaryFile extracted{writePath};
+            const fs::path jpegPath = makeTemporaryPath(outputPath.parent_path());
+            const HANDLE jpeg = CreateFileW(jpegPath.c_str(), GENERIC_WRITE, 0, nullptr,
+                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (jpeg == INVALID_HANDLE_VALUE)
+                sevenzip::Check(HRESULT_FROM_WIN32(GetLastError()), "Cannot create temporary JPEG");
+            const TemporaryFile encoded{jpegPath};
+            if (!CloseHandle(jpeg))
+                sevenzip::Check(HRESULT_FROM_WIN32(GetLastError()), "Cannot close temporary JPEG");
+
+            resizeToJpeg(writePath, jpegPath);
+            if (!MoveFileExW(jpegPath.c_str(), outputPath.c_str(), overwrite ? MOVEFILE_REPLACE_EXISTING : 0))
+            {
+                const DWORD error = GetLastError();
+                if (!overwrite && (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS))
+                    return Result::Exists;
+                sevenzip::Check(HRESULT_FROM_WIN32(error), "Cannot publish resized JPEG");
+            }
+        }
         // Replace only after extraction succeeds, preserving an existing image on failure.
-        if (overwrite && !MoveFileExW(writePath.c_str(), outputPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        else if (overwrite && !MoveFileExW(writePath.c_str(), outputPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
             DeleteFileW(writePath.c_str());
             PrintConsole(L"  ERROR: 既存ファイルの上書き失敗\n");
             return Result::Error;
@@ -208,7 +332,8 @@ Result ExtractFirstImage(const fs::path& zipPath, bool overwrite)
 void ProcessZip(
 	const fs::path& path,
 	Statistics& stats,
-	bool overwrite)
+	bool overwrite,
+	bool resize)
 {
 	++stats.total;
 
@@ -246,7 +371,7 @@ void ProcessZip(
 	// 上書き指定時は既存サムネイルがあってもZIPを開く
 	PrintConsole(L"処理開始: " + path.filename().wstring() + L"\n");
 
-	const Result result = ExtractFirstImage(path, overwrite);
+	const Result result = ExtractFirstImage(path, overwrite, resize);
 
 	// 処理結果を集計
 	std::wstring status;
@@ -300,6 +425,7 @@ int wmain(int argc, wchar_t* argv[])
 	// 引数なしならカレントディレクトリ
 	fs::path root;
 	bool overwrite = false;
+	bool resize = false;
 
 	try {
 		bool endOptions = false;
@@ -311,9 +437,13 @@ int wmain(int argc, wchar_t* argv[])
 			else if (!endOptions && (arg == L"--overwrite" || arg == L"-f")) {
 				overwrite = true;
 			}
+			else if (!endOptions && (arg == L"-r" || arg == L"-resize")) {
+				resize = true;
+			}
 			else if (!endOptions && (arg == L"--help" || arg == L"-h")) {
-				PrintConsole(L"Usage: ThumFromZip.exe [--overwrite|-f] [folder]\n"
-					L"  --overwrite, -f : 既存画像があっても抽出して上書き\n");
+				PrintConsole(L"Usage: ThumFromZip.exe [--overwrite|-f] [-r|-resize] [folder]\n"
+					L"  --overwrite, -f : 既存画像があっても抽出して上書き\n"
+					L"  -r, -resize     : 縦480pxを上限に縮小し、中画質のJPEGで保存\n");
 				return 0;
 			}
 			else if ((!endOptions && !arg.empty() && arg.front() == L'-') || !root.empty()) {
@@ -372,7 +502,7 @@ int wmain(int argc, wchar_t* argv[])
 				regular &&
 				IsZipFile(it->path())) {
 
-				ProcessZip(it->path(), stats, overwrite);
+				ProcessZip(it->path(), stats, overwrite, resize);
 			}
 
 			it.increment(ec);

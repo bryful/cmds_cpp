@@ -185,11 +185,13 @@ renNFD.exe "C:\Files"
 ```powershell
 ThumFromZip.exe "C:\Images"
 ThumFromZip.exe --overwrite "C:\Images"
+ThumFromZip.exe -r -f "C:\Images"
 ```
 
-指定フォルダ以下を再帰的に検索し、各ZIPのJPG/JPEG/PNGから、ファイル名をASCIIの大文字小文字を区別せず比較して先頭になる1枚を抽出します。同名ならZIP内のフルパスで比較します。画像の縮小や再エンコードはしません。引数省略時は作業フォルダを対象にします。
+指定フォルダ以下を再帰的に検索し、各ZIPのJPG/JPEG/PNGから、ファイル名をASCIIの大文字小文字を区別せず比較して先頭になる1枚を抽出します。同名ならZIP内のフルパスで比較します。引数省略時は作業フォルダを対象にします。
 
 - 出力先はZIPの隣です。JPEGは`.jpeg`、PNGは`.png`になります。
+- `-r` または `-resize` を指定すると、縦横比を保って高さを最大480pxに縮小し、品質50%のJPEG（`.jpeg`）として保存します。`-f` と併用できます。
 - 同名の`.jpg`・`.jpeg`・`.png`があれば通常はスキップします。
 - `--overwrite`（`-f`）では、一時ファイルへの抽出成功後に対象画像を置き換えます。
 - 元ZIPを保持し、処理前の対象名と結果を表示します。ログへのリダイレクトはUTF-8です。
